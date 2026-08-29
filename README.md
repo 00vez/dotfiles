@@ -122,20 +122,23 @@ also nicht escaped werden.
 
 ## Abhängigkeiten (zusätzlich zu installieren)
 
-Die `.zshrc` setzt folgende externe Tools voraus. Fehlen sie, werden die
-betroffenen Features einfach übersprungen (die Shell startet trotzdem).
+Die `.zshrc` setzt folgende externe Tools voraus. Fehlt ein **erforderliches**
+Tool, gibt die entsprechende Funktion einen Fehler aus und nennt den passenden
+Installationsbefehl für dein Betriebssystem (macOS → `brew`, Linux/WSL2 → `apt`
+bzw. Linuxbrew). Optionale Features (z. B. die Oh-My-Zsh-Plugins) geben nur
+einen Hinweis aus, die Shell startet trotzdem.
 
-| Tool | Wird genutzt von | Installation |
-|------|------------------|--------------|
-| `mdcat` | `catmd`, `catm` (Markdown) | `brew install mdcat` |
-| `jq` | `catmd`, `catm` (JSON/JSONL) | `brew install jq` |
-| `pygments` (binary `pygmentize`) | `catmd`, `catm` (YAML) | `brew install pygments` (oder `pip install pygments`) |
-| `fd` | `fzf`-Default-Command, Schnellsuche | macOS/Linux (brew): `brew install fd`. Debian/Ubuntu (apt) installiert die Binary als **`fdfind`** – die `.zshrc` erkennt beide automatisch |
-| `fzf` | History-Substring-Search, Default-Command | `brew install fzf` + Integration (`opt/fzf/install`) |
-| `tree` | `t` | `brew install tree` (oder `sudo apt install tree`) |
-| `zsh-autosuggestions` | Autosuggest im Prompt | brew: `brew install zsh-autosuggestions` **oder** apt: `sudo apt install zsh-autosuggestions` |
-| `zsh-history-substring-search` | Pfeil-hoch/runter History | brew: `brew install zsh-history-substring-search` **oder** apt: `sudo apt install zsh-history-substring-search` |
-| `python3` | `i`, `catmd` (YAML via pygmentize) | macOS: in CLT enthalten; Linux: `sudo apt install python3` |
+| Tool | Pflicht? | Wird genutzt von | Installation |
+|------|----------|------------------|--------------|
+| `mdcat` | ja (Markdown in `catmd`/`catm`) | `catmd`, `catm` | macOS: `brew install mdcat` · Linux/WSL2: `brew install mdcat` (Linuxbrew) bzw. `cargo install mdcat` |
+| `jq` | ja (JSON in `catmd`/`catm`) | `catmd`, `catm` | `brew install jq` bzw. `sudo apt install jq` |
+| `pygments` (binary `pygmentize`) | ja (YAML in `catmd`/`catm`) | `catmd`, `catm` | `brew install pygments` bzw. `sudo apt install python3-pygments` |
+| `tree` | ja (`t`) | `t` | `brew install tree` bzw. `sudo apt install tree` |
+| `python3` | ja (`i`) | `i` | macOS: in CLT enthalten · Linux: `sudo apt install python3` |
+| `fd` | nein (`fzf`-Default, optional) | `fzf`-Default-Command | macOS/Linux (brew): `brew install fd`. Debian/Ubuntu (apt) liefert die Binary als **`fdfind`** – die `.zshrc` erkennt beide automatisch |
+| `fzf` | nein | History-Substring-Search, Default-Command | `brew install fzf` + Integration (`opt/fzf/install`) |
+| `zsh-autosuggestions` | nein (Hinweis bei Fehlen) | Autosuggest im Prompt | brew: `brew install zsh-autosuggestions` **oder** apt: `sudo apt install zsh-autosuggestions` |
+| `zsh-history-substring-search` | nein (Hinweis bei Fehlen) | Pfeil-hoch/runter History | brew: `brew install zsh-history-substring-search` **oder** apt: `sudo apt install zsh-history-substring-search` |
 
 ### Optional
 
@@ -165,10 +168,23 @@ Getestet und identisch laufend auf:
 
 Dafür ist die Config so gebaut:
 
+- **Eine Datei für alle drei OS.** Am Anfang erkennt `case "$(uname -r)"` bzw.
+  `$OSTYPE` das System (`macos` / `linux` / `wsl`). Diese Variable `$OS` steuert
+  u. a. die Installationshinweise. Optional kann man OS-spezifisches in
+  `~/.zshrc.$OS` auslagern und via `[[ -f ~/.zshrc.$OS ]] && source ~/.zshrc.$OS`
+  einbinden – die Hauptdatei bleibt für die gemeinsamen Aliases/Functions.
+- **Fehlende Pflicht-Tools → Fehler mit OS-Install-Hinweis.** Der Helper
+  `_require <tool>` prüft via `command -v`; fehlt das Tool, kommt ein Fehler
+  mit dem passenden Befehl (`brew install …` auf macOS, `sudo apt install …`
+  bzw. Linuxbrew auf Linux/WSL2). `catmd`/`catm` (mdcat/jq/pygmentize), `t`
+  (tree) und `i` (python3) nutzen das. Optionale Features (Oh-My-Zsh-Plugins)
+  geben nur einen `_warn_tool`-Hinweis, ohne die Shell zu blockieren.
 - **Kein BSD-/GNU-`stat`-Split mehr.** Alle Metadaten kommen aus `zstat`
   (zsh-Builtin, `zsh/stat`), das auf allen Plattformen identisch formatiert.
   Früher nutzte die `.zshrc` `stat -f` (BSD/macOS) – das bricht unter Linux/WSL2,
   wo `stat` GNU-Syntax (`-c`) erwartet.
+- **Portable History-Completion.** `_history_commands` nutzt `tac` (GNU/Linux)
+  bzw. `tail -r` (macOS) – `tail -r` allein würde unter Linux/WSL2 abbrechen.
 - **PATH automatisch plattformgerecht**: Apple-Silicon-, Intel- und
   Linuxbrew-Pfade werden je nach Vorhandensein ergänzt – keine manuelle
   `brew shellenv`-Voraussetzung nötig (empfohlen bleibt sie trotzdem).

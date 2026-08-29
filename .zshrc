@@ -5,19 +5,60 @@ export PATH="$HOME/.local/bin:$HOME/Documents/.verapdf:/usr/local/bin:$PATH"
 [[ -d /opt/homebrew/bin ]] && export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
 [[ -d /home/linuxbrew/.linuxbrew/bin ]] && export PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$PATH"
 
+# Betriebssystem erkennen: eine .zshrc fuer macOS (Intel + Apple Silicon), Linux und WSL2.
+case "$(uname -r)" in
+  *microsoft*|*Microsoft*) OS="wsl" ;;
+  *)
+    case "$OSTYPE" in
+      darwin*) OS="macos" ;;
+      linux*)  OS="linux" ;;
+      *)       OS="unknown" ;;
+    esac
+    ;;
+esac
+
 # Plattformneutrale Builtins: zsh/stat (statt BSD/GNU-stat) und zsh/datetime (strftime).
 zmodload zsh/stat 2>/dev/null
 zmodload zsh/datetime 2>/dev/null
 
+# Erforderliches Tool pruefen; bei Fehlen OS-spezifischen Installationsweg ausgeben.
+_require() {
+  local tool="$1"
+  local macos_cmd="${2:-brew install $tool}"
+  local linux_cmd="${3:-sudo apt install $tool}"
+  local wsl_cmd="${4:-$linux_cmd}"
+  command -v "$tool" >/dev/null 2>&1 && return 0
+  local cmd="$macos_cmd"
+  [[ "$OS" == "linux" ]] && cmd="$linux_cmd"
+  [[ "$OS" == "wsl"   ]] && cmd="$wsl_cmd"
+  print -P "%F{1}Fehler:%f '$tool' ist nicht installiert." >&2
+  print -P "  Installation ($OS): %F{3}$cmd%f" >&2
+  return 1
+}
+
+# Wie _require, aber nicht fatal (Hinweis statt Abbruch) – fuer optionale Features.
+_warn_tool() {
+  local tool="$1"
+  local macos_cmd="${2:-brew install $tool}"
+  local linux_cmd="${3:-sudo apt install $tool}"
+  local wsl_cmd="${4:-$linux_cmd}"
+  local cmd="$macos_cmd"
+  [[ "$OS" == "linux" ]] && cmd="$linux_cmd"
+  [[ "$OS" == "wsl"   ]] && cmd="$wsl_cmd"
+  print -P "%F{3}Hinweis:%f '$tool' fehlt. Installation ($OS): %F{3}$cmd%f" >&2
+}
+
 # zsh-autosuggestions: egal ob via brew (macOS/Linux) oder apt (Debian/Ubuntu/WSL2) installiert.
+local _as_loaded=0
 for _p in \
   "$HOMEBREW_PREFIX/share/zsh-autosuggestions/zsh-autosuggestions.zsh" \
   /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
   /usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
   "$ZSH/plugins/zsh-autosuggestions/zsh-autosuggestions.plugin.zsh" ; do
-  [[ -f "$_p" ]] && { source "$_p"; break; }
+  [[ -f "$_p" ]] && { source "$_p"; _as_loaded=1; break; }
 done
 unset _p
+(( _as_loaded )) || _warn_tool zsh-autosuggestions
 
 export ZSH="$HOME/.oh-my-zsh"
 # Eigene Plugins/Themes hier ablegen, z.B.:
@@ -36,14 +77,16 @@ source $ZSH/oh-my-zsh.sh
 
 unsetopt NULL_GLOB
 
+local _hss_loaded=0
 for _p in \
   "$HOMEBREW_PREFIX/share/zsh-history-substring-search/zsh-history-substring-search.zsh" \
   /usr/share/zsh-history-substring-search/zsh-history-substring-search.zsh \
   /usr/local/share/zsh-history-substring-search/zsh-history-substring-search.zsh \
   "$ZSH/plugins/zsh-history-substring-search/zsh-history-substring-search.plugin.zsh" ; do
-  [[ -f "$_p" ]] && { source "$_p"; break; }
+  [[ -f "$_p" ]] && { source "$_p"; _hss_loaded=1; break; }
 done
 unset _p
+(( _hss_loaded )) || _warn_tool zsh-history-substring-search
 bindkey '^[[A' history-substring-search-up
 bindkey '^[[B' history-substring-search-down
 
@@ -394,6 +437,7 @@ ll() {
 }
 
 t() {
+  _require tree || return 1
   local dir="." dirs_only=0
   if [[ "$1" == "*" ]]; then
     dirs_only=1
@@ -416,6 +460,7 @@ i() {
     echo "i: '$target' does not exist"
     return 1
   fi
+  _require python3 || return 1
   local abs rel type size perms owner group mtime ctime
   abs="${target:A}"
   rel=$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1]))" "$abs")
@@ -461,8 +506,9 @@ zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' 'r:|[._-]=* r:|=*' 'l:
 
 # Tab-completion at command position: suggest only from history, not full $PATH
 _history_commands() {
-  local -a cmds raw
-  raw=(${(f)"$(LC_ALL=C tail -r "$HISTFILE" 2>/dev/null | LC_ALL=C sed -E 's/^: [0-9]+:[0-9]+;//' | awk '{print $1}' | awk '!seen[$0]++')"})
+  local -a cmds raw rev=(tac)
+  command -v tac >/dev/null 2>&1 || rev=(tail -r)
+  raw=(${(f)"$(LC_ALL=C $rev "$HISTFILE" 2>/dev/null | LC_ALL=C sed -E 's/^: [0-9]+:[0-9]+;//' | awk '{print $1}' | awk '!seen[$0]++')"})
   local c
   for c in $raw; do
     (( $+commands[$c] || $+functions[$c] || $+aliases[$c] || $+builtins[$c] )) && cmds+=("$c")
@@ -500,19 +546,25 @@ alias ccc=clang
 unalias catmd catm 2>/dev/null
 catmd() {
   if [[ "$1" == *.json || "$1" == *.jsonl ]]; then
+    _require jq || return 1
     jq -C . "$1" | less -R
   elif [[ "$1" == *.yml || "$1" == *.yaml ]]; then
+    _require pygmentize "brew install pygments" "sudo apt install python3-pygments" "sudo apt install python3-pygments" || return 1
     pygmentize -l yaml -O style=monokai "$1" | less -R
   else
+    _require mdcat "brew install mdcat" "brew install mdcat  (Linuxbrew) bzw. cargo install mdcat" "brew install mdcat  (Linuxbrew) bzw. cargo install mdcat" || return 1
     mdcat --paginate "$@"
   fi
 }
 catm() {
   if [[ "$1" == *.json || "$1" == *.jsonl ]]; then
+    _require jq || return 1
     jq -C . "$1"
   elif [[ "$1" == *.yml || "$1" == *.yaml ]]; then
+    _require pygmentize "brew install pygments" "sudo apt install python3-pygments" "sudo apt install python3-pygments" || return 1
     pygmentize -l yaml -O style=monokai "$1"
   else
+    _require mdcat "brew install mdcat" "brew install mdcat  (Linuxbrew) bzw. cargo install mdcat" "brew install mdcat  (Linuxbrew) bzw. cargo install mdcat" || return 1
     mdcat "$@"
   fi
 }
