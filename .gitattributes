@@ -1,0 +1,4 @@
+# Erzwingt LF-Zeilenenden beim Auschecken, damit die .zshrc auf macOS,
+# Linux und WSL2 identisch (und von zsh parsebar) bleibt. CRLF wuerde
+# `unsetopt EQUALS^M` erzeugen und das ganze File unbrauchbar machen.
+* text=auto eol=lf

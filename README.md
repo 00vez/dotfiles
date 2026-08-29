@@ -99,7 +99,7 @@ also nicht escaped werden.
 | `ff` | Funktion `_ff_impl` | Wie `f`, inklusive versteckter Dateien |
 | `ll [dir]` | Funktion | Verzeichnisinhalt mit Größe + Datum, farbig nach Typ |
 | `t [dir]` | Funktion | `tree`-Ansicht, ignoriert `.git`, `node_modules`, `venv`, Build-Dirs etc. |
-| `i [pfad]` | Funktion | Metadaten: Typ, Größe, Rechte, Owner, mtime/ctime/btime |
+| `i [pfad]` | Funktion | Metadaten: Typ, Größe, Rechte, Owner, mtime/ctime |
 | `py` | `python3` | Python 3 Aufruf |
 | `reload` | `source ~/.zshrc` | Config neu laden |
 | `cl` / `c` | `clear` | Terminal leeren |
@@ -107,7 +107,6 @@ also nicht escaped werden.
 | `ccc` | `clang` | C-Compiler (Xcode CLT / LLVM) |
 | `catmd <datei>` | Funktion | Markdown/JSON/YAML farbig via `less` (mdcat/jq/pygmentize) |
 | `catm <datei>` | Funktion | Wie `catmd`, aber ohne Pager |
-| `ssdm` | Alias | CPU- und RAM-Auslastung anzeigen |
 
 `f`/`ff` Syntax im Detail:
 
@@ -131,11 +130,11 @@ betroffenen Features einfach übersprungen (die Shell startet trotzdem).
 | `mdcat` | `catmd`, `catm` (Markdown) | `brew install mdcat` |
 | `jq` | `catmd`, `catm` (JSON/JSONL) | `brew install jq` |
 | `pygments` (binary `pygmentize`) | `catmd`, `catm` (YAML) | `brew install pygments` (oder `pip install pygments`) |
-| `fd` | `fzf`-Default-Command, Schnellsuche | `brew install fd` |
+| `fd` | `fzf`-Default-Command, Schnellsuche | macOS/Linux (brew): `brew install fd`. Debian/Ubuntu (apt) installiert die Binary als **`fdfind`** – die `.zshrc` erkennt beide automatisch |
 | `fzf` | History-Substring-Search, Default-Command | `brew install fzf` + Integration (`opt/fzf/install`) |
-| `tree` | `t` | `brew install tree` |
-| `zsh-autosuggestions` | Autosuggest im Prompt | `brew install zsh-autosuggestions` |
-| `zsh-history-substring-search` | Pfeil-hoch/runter History | `brew install zsh-history-substring-search` |
+| `tree` | `t` | `brew install tree` (oder `sudo apt install tree`) |
+| `zsh-autosuggestions` | Autosuggest im Prompt | brew: `brew install zsh-autosuggestions` **oder** apt: `sudo apt install zsh-autosuggestions` |
+| `zsh-history-substring-search` | Pfeil-hoch/runter History | brew: `brew install zsh-history-substring-search` **oder** apt: `sudo apt install zsh-history-substring-search` |
 | `python3` | `i`, `catmd` (YAML via pygmentize) | macOS: in CLT enthalten; Linux: `sudo apt install python3` |
 
 ### Optional
@@ -153,7 +152,34 @@ betroffenen Features einfach übersprungen (die Shell startet trotzdem).
 - Die Config ist bewusst portabel gehalten: private Pfade (z. B. ein
   projektspezifisches Oh-My-Zsh-Plugin) sind entfernt. Eigene Plugins/Themes
   bindest du über `ZSH_CUSTOM` ein (siehe Kopf der `.zshrc`).
-- `EDITOR` ist auf `code --wait` gesetzt. Ohne VS Code einfach in der `.zshrc`
-  anpassen (z. B. `export EDITOR="vim"`).
-- Getestet mit Oh My Zsh auf macOS (Apple Silicon, `/opt/homebrew`) und Linux
-  (Linuxbrew, `/home/linuxbrew/.linuxbrew`).
+- `EDITOR` ist auf `code --wait` gesetzt, sofern `code` im PATH ist, sonst
+  automatisch auf `vim` zurückfallend. Anpassen in der `.zshrc` (z. B.
+  `export EDITOR="nano"`).
+
+## Plattform-Unterstützung (einheitlich)
+
+Getestet und identisch laufend auf:
+
+- **macOS Apple Silicon** (`/opt/homebrew`) und **macOS Intel** (`/usr/local`)
+- **Linux** (native) und **WSL2** (Ubuntu 24.04, GNU-Userland)
+
+Dafür ist die Config so gebaut:
+
+- **Kein BSD-/GNU-`stat`-Split mehr.** Alle Metadaten kommen aus `zstat`
+  (zsh-Builtin, `zsh/stat`), das auf allen Plattformen identisch formatiert.
+  Früher nutzte die `.zshrc` `stat -f` (BSD/macOS) – das bricht unter Linux/WSL2,
+  wo `stat` GNU-Syntax (`-c`) erwartet.
+- **PATH automatisch plattformgerecht**: Apple-Silicon-, Intel- und
+  Linuxbrew-Pfade werden je nach Vorhandensein ergänzt – keine manuelle
+  `brew shellenv`-Voraussetzung nötig (empfohlen bleibt sie trotzdem).
+- **Plugins unabhängig von der Installationsart**: `zsh-autosuggestions` und
+  `zsh-history-substring-search` werden via brew (`$HOMEBREW_PREFIX/share/...`)
+  **oder** apt (`/usr/share/...`) geladen – je nachdem, was existiert.
+- **`fd` vs. `fdfind`**: Debian/Ubuntu liefert `fd` als `fdfind`; beide werden
+  für den `fzf`-Default-Command erkannt.
+- **Zeilenenden**: Die `.zshrc` muss LF sein (CRLF lässt zsh mit
+  `no such option: EQUALS^M` abstürzen). `.gitattributes` erzwingt `eol=lf`,
+  sodass ein Klon auf jedem OS korrekt ausgeliefert wird.
+- `i` zeigt `Modified`/`Changed` (mtime/ctime). Die macOS-only "Birth"-Zeit
+  (`stat %SB`) ist entfernt, weil sie unter Linux/GNU nicht portabel verfügbar
+  ist.

@@ -1,8 +1,23 @@
 unsetopt EQUALS
 
-export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$HOME/.local/bin:$HOME/Documents/.verapdf:/usr/local/bin:$PATH"
+# Portable PATH: brew fuer Apple Silicon, Intel und Linux/Linuxbrew + lokale Binaries.
+export PATH="$HOME/.local/bin:$HOME/Documents/.verapdf:/usr/local/bin:$PATH"
+[[ -d /opt/homebrew/bin ]] && export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
+[[ -d /home/linuxbrew/.linuxbrew/bin ]] && export PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$PATH"
 
-[[ -n $HOMEBREW_PREFIX ]] && source $HOMEBREW_PREFIX/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+# Plattformneutrale Builtins: zsh/stat (statt BSD/GNU-stat) und zsh/datetime (strftime).
+zmodload zsh/stat 2>/dev/null
+zmodload zsh/datetime 2>/dev/null
+
+# zsh-autosuggestions: egal ob via brew (macOS/Linux) oder apt (Debian/Ubuntu/WSL2) installiert.
+for _p in \
+  "$HOMEBREW_PREFIX/share/zsh-autosuggestions/zsh-autosuggestions.zsh" \
+  /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
+  /usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
+  "$ZSH/plugins/zsh-autosuggestions/zsh-autosuggestions.plugin.zsh" ; do
+  [[ -f "$_p" ]] && { source "$_p"; break; }
+done
+unset _p
 
 export ZSH="$HOME/.oh-my-zsh"
 # Eigene Plugins/Themes hier ablegen, z.B.:
@@ -21,21 +36,34 @@ source $ZSH/oh-my-zsh.sh
 
 unsetopt NULL_GLOB
 
-[[ -n $HOMEBREW_PREFIX ]] && source $HOMEBREW_PREFIX/share/zsh-history-substring-search/zsh-history-substring-search.zsh
+for _p in \
+  "$HOMEBREW_PREFIX/share/zsh-history-substring-search/zsh-history-substring-search.zsh" \
+  /usr/share/zsh-history-substring-search/zsh-history-substring-search.zsh \
+  /usr/local/share/zsh-history-substring-search/zsh-history-substring-search.zsh \
+  "$ZSH/plugins/zsh-history-substring-search/zsh-history-substring-search.plugin.zsh" ; do
+  [[ -f "$_p" ]] && { source "$_p"; break; }
+done
+unset _p
 bindkey '^[[A' history-substring-search-up
 bindkey '^[[B' history-substring-search-down
 
-export EDITOR="${EDITOR:-code --wait}"
+if (( $+commands[code] )); then
+  export EDITOR="${EDITOR:-code --wait}"
+else
+  export EDITOR="${EDITOR:-vim}"
+fi
 
 if command -v pyenv 1>/dev/null 2>&1; then
   eval "$(pyenv init --path)"
   eval "$(pyenv init -)"
 fi
 
-if command -v fd 1>/dev/null 2>&1; then
+if command -v fd >/dev/null 2>&1; then
   export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
-  export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
+elif command -v fdfind >/dev/null 2>&1; then
+  export FZF_DEFAULT_COMMAND='fdfind --type f --hidden --follow --exclude .git'
 fi
+export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 export FZF_DEFAULT_OPTS="--height 40% --layout=reverse --border"
 
 _type_color() {
@@ -203,9 +231,16 @@ _ff_impl() {
   local -a type_clause
   (( dirs_only )) && type_clause=(-type d) || type_clause=(\( -type f -o -type d \))
 
-  local -a raw
-  raw=(${(f)"$(find "$root" -mindepth 1 \( -type d \( -false "${prune_expr[@]}" \) -prune \) -o "${type_clause[@]}" "${name_clauses[@]}" "${hidden_exclude[@]}" -print0 2>/dev/null \
-    | xargs -0 stat -f '%m|%Sm|%N' -t '%Y-%m-%d_%H:%M' 2>/dev/null)"})
+  local -a raw paths
+  local -A _z
+  local ep mtime fp
+  paths=(${(0)"$(find "$root" -mindepth 1 \( -type d \( -false "${prune_expr[@]}" \) -prune \) -o "${type_clause[@]}" "${name_clauses[@]}" "${hidden_exclude[@]}" -print0 2>/dev/null)"})
+  for fp in $paths; do
+    zstat -H _z "$fp" 2>/dev/null || continue
+    ep="${_z[mtime]}"
+    mtime=$(strftime '%Y-%m-%d_%H:%M' "$ep")
+    raw+=("${ep}|${mtime}|${fp}")
+  done
 
   if (( ${#req_content[@]} || ${#opt_content[@]} )); then
     local -a filtered=()
@@ -328,10 +363,17 @@ ll() {
   fi
   local -a type_clause
   (( dirs_only )) && type_clause=(-type d)
-  local -a entries
-  entries=(${(f)"$(find "$dir" -mindepth 1 -maxdepth 1 ! -name '.*' "${type_clause[@]}" -print0 2>/dev/null \
-    | xargs -0 stat -f '%z|%Sm|%N' -t '%Y-%m-%d %H:%M' 2>/dev/null \
-    | sort -t'|' -k3)"})
+  local -a entries paths
+  local -A _z
+  local sz mtime fp
+  paths=(${(0)"$(find "$dir" -mindepth 1 -maxdepth 1 ! -name '.*' "${type_clause[@]}" -print0 2>/dev/null)"})
+  for fp in $paths; do
+    zstat -H _z "$fp" 2>/dev/null || continue
+    sz="${_z[size]}"
+    mtime=$(strftime '%Y-%m-%d %H:%M' "${_z[mtime]}")
+    entries+=("${sz}|${mtime}|${fp}")
+  done
+  entries=(${(f)"$(printf '%s\n' "${entries[@]}" | sort -t'|' -k3)"})
   (( ${#entries} == 0 )) && return 0
   local line size mtime filepath name color hsize
   for line in $entries; do
@@ -374,18 +416,21 @@ i() {
     echo "i: '$target' does not exist"
     return 1
   fi
-  local abs rel type size perms owner group mtime btime ctime
+  local abs rel type size perms owner group mtime ctime
   abs="${target:A}"
   rel=$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1]))" "$abs")
 
-  local stline
-  stline=$(stat -f '%Sp|%Su|%Sg|%z|%Sm|%SB|%Sc' -t '%Y-%m-%d %H:%M:%S' "$target")
-  perms="${stline%%|*}"; stline="${stline#*|}"
-  owner="${stline%%|*}"; stline="${stline#*|}"
-  group="${stline%%|*}"; stline="${stline#*|}"
-  size="${stline%%|*}"; stline="${stline#*|}"
-  mtime="${stline%%|*}"; stline="${stline#*|}"
-  btime="${stline%%|*}"; ctime="${stline#*|}"
+  local -A _z
+  if ! zstat -H _z -F '%Y-%m-%d %H:%M:%S' "$target" 2>/dev/null; then
+    echo "i: cannot stat '$target'"
+    return 1
+  fi
+  perms="${_z[mode]}"
+  owner="${_z[uid]}"
+  group="${_z[gid]}"
+  size="${_z[size]}"
+  mtime="${_z[mtime]}"
+  ctime="${_z[ctime]}"
 
   if [[ -L "$target" ]]; then
     type="symlink -> $(readlink "$target")"
@@ -408,7 +453,6 @@ i() {
   print -P "%F{cyan}Size:%f      $size"
   print -P "%F{cyan}Perms:%f     $perms  ($owner:$group)"
   print -P "%F{cyan}Modified:%f  $mtime"
-  print -P "%F{cyan}Created:%f   $btime"
   print -P "%F{cyan}Changed:%f   $ctime"
 }
 
@@ -472,6 +516,5 @@ catm() {
     mdcat "$@"
   fi
 }
-alias ssdm='echo CPU && ps -A -o %cpu | awk '"'"'{s+=$1} END {print s/16 "%"}'"'"' && echo RAM && memory_pressure | grep "System-wide memory free percentage" | awk '"'"'{print 100-$5 "%"}'"'"''
 
 # exp: siehe ~/.local/bin/exp (funktioniert in jeder Shell, jedem Agent via PATH)
