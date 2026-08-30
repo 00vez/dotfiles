@@ -146,15 +146,17 @@ _ff_impl() {
   local show_hidden="$1"
   shift
   if [[ $# -eq 0 ]]; then
-    echo "usage: f/ff <pattern> [pattern2 ...] [.ext]"
+    echo "usage: f/ff <pattern> [pattern2 ...] [.ext] [*N]"
     return 1
   fi
   local -a patterns=() extensions=() req_content=() opt_content=()
   local -A tags_for
-  local arg glob root="." root_set=0 dirs_only=0 before_ctx=0 after_ctx=0
+  local arg glob root="." root_set=0 dirs_only=0 before_ctx=0 after_ctx=0 limit=0
   for arg in "$@"; do
     if [[ "$arg" == "*" ]]; then
       dirs_only=1
+    elif [[ "$arg" == \*<-> ]]; then
+      limit="${arg#\*}"
     elif [[ "$arg" == ","?* ]]; then
       req_content+=("${arg#,}")
     elif [[ "$arg" == "="?* ]]; then
@@ -224,7 +226,7 @@ _ff_impl() {
     fi
   done
   if [[ ${#patterns[@]} -eq 0 && ${#extensions[@]} -eq 0 && ${#req_content[@]} -eq 0 && ${#opt_content[@]} -eq 0 && $dirs_only -eq 0 ]]; then
-    echo "usage: f/ff [dir/] <pattern> [.ext] [,content] [=content] [-N] [+N] [*]"
+    echo "usage: f/ff [dir/] <pattern> [.ext] [,content] [=content] [-N] [+N] [*] [*N]"
     return 1
   fi
   if (( dirs_only && (${#req_content[@]} || ${#opt_content[@]}) )); then
@@ -277,6 +279,7 @@ _ff_impl() {
   local -a raw paths
   local -A _z
   local ep mtime fp
+  print -P "%F{cyan}${root:A}%f"
   paths=(${(0)"$(find "$root" -mindepth 1 \( -type d \( -false "${prune_expr[@]}" \) -prune \) -o "${type_clause[@]}" "${name_clauses[@]}" "${hidden_exclude[@]}" -print0 2>/dev/null)"})
   for fp in $paths; do
     zstat -H _z "$fp" 2>/dev/null || continue
@@ -350,7 +353,10 @@ _ff_impl() {
   (( ${#known} > 0 )) && pairs+=(${(f)"$(printf '%s\n' "${known[@]}" | sort -t'|' -k1,1n -k2,2rn)"})
   (( ${#rest} > 0 )) && pairs+=(${(f)"$(printf '%s\n' "${rest[@]}" | sort -t'|' -k4)"})
 
-  print -P "%F{cyan}# ${#pairs} matches found in ${root:A}%f"
+  print -P "%F{cyan}# ${#pairs}%f"
+  if (( limit > 0 )); then
+    pairs=("${(@)pairs[1,limit]}")
+  fi
   (( ${#pairs} == 0 )) && return 0
   local line color disp tag
   local -a greppat
