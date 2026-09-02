@@ -66,20 +66,7 @@ function lsf {
 }
 
 # -- lsi -- ls info
-function lsi {
-    param([Parameter(Mandatory)][string]$Path)
-    $item = Get-Item -LiteralPath $Path -ErrorAction Stop
-    if ($item.PSIsContainer) {
-        $item | Select-Object Name, FullName, CreationTime, LastWriteTime, @{N = 'Type'; E = { 'Directory' } }
-        return
-    }
-    $bytes = $item.Length
-    $size = if ($bytes -ge 1GB) { "{0:N2} GB" -f ($bytes / 1GB) }
-            elseif ($bytes -ge 1MB) { "{0:N2} MB" -f ($bytes / 1MB) }
-            elseif ($bytes -ge 1KB) { "{0:N2} KB" -f ($bytes / 1KB) }
-            else { "{0} B" -f $bytes }
-    $item | Select-Object Name, Extension, @{N = 'Size'; E = { $size } }, LastWriteTime, CreationTime, FullName
-}
+# (lsi wurde in `i` zusammengeführt: Name, Extension, Size, Timestamps, FullName.)
 
 # ===========================================================================
 # zsh-style aliases & commands (ported for parity — verified under pwsh)
@@ -455,9 +442,11 @@ function i {
 
     $owner = (Get-Acl -LiteralPath $abs).Owner
 
+    Write-Host (Write-Colored "Name:     " '36') $item.Name
+    Write-Host (Write-Colored "Type:     " '36') $type
+    if (-not $item.PSIsContainer) { Write-Host (Write-Colored "Ext:      " '36') $item.Extension }
     Write-Host (Write-Colored "Path:     " '36') "$abs"
     Write-Host (Write-Colored "Relative: " '36') "$rel"
-    Write-Host (Write-Colored "Type:     " '36') "$type"
     Write-Host (Write-Colored "Size:     " '36') "$size"
     Write-Host (Write-Colored "Owner:    " '36') "$owner"
     Write-Host (Write-Colored "Modified: " '36') "$($item.LastWriteTime)"
@@ -507,6 +496,10 @@ function ll {
 # ---------------------------------------------------------------------------
 # catmd / catm — markdown/json/jsonl/yaml viewer (reuses cross-platform tools:
 # jq, mdcat, pygmentize; falls back to Get-Content when a tool is missing).
+# NOTE: mdcat/pygmentize strip all styling when stdout is a pipe — that's why
+# --ansi (mdcat) forces colors even when captured, and YAML runs uncaptured
+# straight to the console. Paging uses native Out-Host -Paging (no `less` on
+# Windows).
 # ---------------------------------------------------------------------------
 
 function Invoke-CatMdImpl {
@@ -523,20 +516,30 @@ function Invoke-CatMdImpl {
         if ($null -eq $output) { $output = Get-Content $FilePath }
     }
     elseif ($FilePath -match '\.ya?ml$') {
-        if (Get-Command pygmentize -ErrorAction SilentlyContinue) {
-            try { $output = pygmentize -l yaml -O style=monokai $FilePath 2>$null } catch { $output = $null }
+        if (-not $Paginate -and (Get-Command pygmentize -ErrorAction SilentlyContinue)) {
+            & pygmentize -l yaml -O style=monokai $FilePath
+            return
         }
-        if ($null -eq $output) { $output = Get-Content $FilePath }
+        $output = Get-Content $FilePath
     }
     else {
         if (Get-Command mdcat -ErrorAction SilentlyContinue) {
-            try { $output = mdcat @args 2>$null } catch { $output = $null }
+            # --ansi erzwingt Styling auch bei Pipe-Ausgabe, --columns 0 deaktiviert
+            # Hard-Wrapping (das Terminal soft-wrappt selbst).
+            try { $output = mdcat --ansi --columns 0 $FilePath 2>$null } catch { $output = $null }
         }
         if ($null -eq $output) { $output = Get-Content $FilePath }
     }
 
-    if ($Paginate -and (Get-Command less -ErrorAction SilentlyContinue)) {
-        $output | less -R
+    if ($Paginate) {
+        # Out-Host -Paging blockiert bei umgeleitetem stdin (Jobs/CI) -> dort dumps.
+        if ([Console]::IsInputRedirected) { $output }
+        else {
+            # Q-Quit des Pagers wirft OperationStopped -> still schlucken, kein roter Error.
+            try { $output | Out-Host -Paging }
+            catch [System.Management.Automation.OperationStoppedException] { }
+            catch [System.Management.Automation.PipelineStoppedException] { }
+        }
     } else {
         $output
     }
@@ -569,6 +572,11 @@ function l {
 # ===========================================================================
 # Host / module setup
 # ===========================================================================
+
+# UTF-8 für die Ausgabekodierung: mdcat/jq/pygmentize geben UTF-8 aus; ohne
+# dieses Setting dekodiert pwsh deren Output mit der OEM-Codepage (z.B. 850)
+# und Umlaute werden zu Mojibake (├ñ statt ä).
+try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }
 
 # PowerToys CommandNotFound module
 Import-Module -Name Microsoft.WinGet.CommandNotFound
