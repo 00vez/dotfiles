@@ -37,10 +37,29 @@ function wt { python C:\Users\v\Documents\lib\wt-whats-running\wt.py @args }
 function tn {
     param(
         [Parameter(Position = 0)]
-        [string]$Name = 'main'
+        [string]$Name
     )
 
-    tmux -L $Name new-session -A -s $Name
+    if (-not $Name) {
+        # Ohne Parameter: erste freie Nummer auf Default-Socket (N+1).
+        $Name = '1'
+        $i = 1
+        while ($true) {
+            tmux -L main has-session -t $Name 2>$null
+            if ($LASTEXITCODE -ne 0) { break }
+            $i++
+            $Name = "$i"
+        }
+        tmux -L main new-session -s $Name
+    }
+    else {
+        tmux -L $Name has-session -t $Name 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Session '$Name' existiert bereits."
+            return
+        }
+        tmux -L $Name new-session -s $Name
+    }
 }
 
 function ta {
@@ -49,7 +68,28 @@ function ta {
         [string]$Name = 'main'
     )
 
-    tmux -L $Name attach -t $Name
+    $raw = tmux -L $Name ls -F '#{session_name}|#{session_windows}|#{session_created}|#{session_last_attached}|#{session_attached}' 2>$null
+    if (-not $raw) {
+        Write-Host "Keine tmux-Sessions auf Socket '$Name'."
+        return
+    }
+    $sessions = @($raw)
+    for ($k = 0; $k -lt $sessions.Count; $k++) {
+        $parts = $sessions[$k] -split '\|'
+        $created = [DateTimeOffset]::FromUnixTimeSeconds([long]$parts[2]).LocalDateTime.ToString('HH:mm dd.MM')
+        $last = [DateTimeOffset]::FromUnixTimeSeconds([long]$parts[3]).LocalDateTime.ToString('HH:mm dd.MM')
+        $att = if ($parts[4] -eq '1') { 'aktiv' } else { "zuletzt $last" }
+        Write-Host ("  [{0}] {1}  ({2} Fenster, erstellt {3}, {4})" -f ($k + 1), $parts[0], $parts[1], $created, $att)
+    }
+    $choice = Read-Host ("Session wählen [1-{0}]" -f $sessions.Count)
+    if (-not $choice) { $choice = '1' }
+    $idx = 0
+    if (-not [int]::TryParse($choice, [ref]$idx) -or $idx -lt 1 -or $idx -gt $sessions.Count) {
+        Write-Host 'Ungültige Auswahl.'
+        return
+    }
+    $target = ($sessions[$idx - 1] -split '\|')[0]
+    tmux -L $Name attach -t $target
 }
 
 function tl {
