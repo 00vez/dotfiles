@@ -142,21 +142,41 @@ _type_color() {
 }
 
 unalias f ff ll t 2>/dev/null
+_ff_help() {
+  print -P "%F{cyan}f/ff – rekursive Dateisuche. %fOhne Argument oder 'help' zeigt diese Parameterübersicht."
+  print ""
+  print "Syntax:  f  <pattern> [pattern2 ...] [.ext] [dir/] [*] [*N] [,text] [=text] [-N] [+N] [:N]"
+  print ""
+  print "  <pattern>   Dateiname enthält Muster (mehrere = UND-Verknüpfung)"
+  print "  .ext        nur diese Endung (z.B. .md .txt; mehrere = ODER)"
+  print "  dir/        nur in diesem Verzeichnis suchen (z.B. src/)"
+  print "  *           nur Verzeichnisse anzeigen (nicht mit ,/= kombinierbar)"
+  print "  *N          nur erste N Ergebnisse zeigen (z.B. *10)"
+  print "  ,text       Dateiinhalt muss Text enthalten (mehrere = UND)"
+  print "  =text       Treffer-Tag wenn Datei Text enthält (nur Anzeige)"
+  print "  -N / +N     N Zeilen Kontext vor/nach Content-Treffer (z.B. -2 +2)"
+  print "  :N          maximale Suchtiefe ab Suchroot (z.B. :2)"
+  print "  ff          wie f, zeigt zusätzlich versteckte Dateien"
+  print ""
+  print "Sortierung: txt > md > ausführbar > Bild > Video > bekannt (neueste zuerst), Rest alphabetisch."
+}
 _ff_impl() {
   local show_hidden="$1"
   shift
-  if [[ $# -eq 0 ]]; then
-    echo "usage: f/ff <pattern> [pattern2 ...] [.ext] [*N]"
-    return 1
+  if [[ $# -eq 0 || "$1" == "help" || "$1" == "?" || "$1" == "--help" || "$1" == "-h" ]]; then
+    _ff_help
+    return 0
   fi
   local -a patterns=() extensions=() req_content=() opt_content=()
   local -A tags_for
-  local arg glob root="." root_set=0 dirs_only=0 before_ctx=0 after_ctx=0 limit=0
+  local arg glob root="." root_set=0 dirs_only=0 before_ctx=0 after_ctx=0 limit=0 maxdepth=0
   for arg in "$@"; do
     if [[ "$arg" == "*" ]]; then
       dirs_only=1
     elif [[ "$arg" == \*<-> ]]; then
       limit="${arg#\*}"
+    elif [[ "$arg" == :<-> ]]; then
+      maxdepth="${arg#:}"
     elif [[ "$arg" == ","?* ]]; then
       req_content+=("${arg#,}")
     elif [[ "$arg" == "="?* ]]; then
@@ -225,12 +245,12 @@ _ff_impl() {
       patterns+=("$arg")
     fi
   done
-  if [[ ${#patterns[@]} -eq 0 && ${#extensions[@]} -eq 0 && ${#req_content[@]} -eq 0 && ${#opt_content[@]} -eq 0 && $dirs_only -eq 0 ]]; then
-    echo "usage: f/ff [dir/] <pattern> [.ext] [,content] [=content] [-N] [+N] [*] [*N]"
-    return 1
+  if [[ ${#patterns[@]} -eq 0 && ${#extensions[@]} -eq 0 && ${#req_content[@]} -eq 0 && ${#opt_content[@]} -eq 0 && $dirs_only -eq 0 && $maxdepth -eq 0 ]]; then
+    _ff_help
+    return 0
   fi
   if (( dirs_only && (${#req_content[@]} || ${#opt_content[@]}) )); then
-    echo "f/ff: content search (','/'=') not valid with '*' (dirs only)"
+    echo "f/ff: Content-Suche nicht mit '*' kombinierbar"
     return 1
   fi
 
@@ -279,8 +299,10 @@ _ff_impl() {
   local -a raw paths
   local -A _z
   local ep mtime fp
+  local -a maxdepth_clause=()
+  (( maxdepth > 0 )) && maxdepth_clause=(-maxdepth "$maxdepth")
   print -P "%F{cyan}${root:A}%f"
-  paths=(${(0)"$(find "$root" -mindepth 1 \( -type d \( -false "${prune_expr[@]}" \) -prune \) -o "${type_clause[@]}" "${name_clauses[@]}" "${hidden_exclude[@]}" -print0 2>/dev/null)"})
+  paths=(${(0)"$(find "$root" -mindepth 1 "${maxdepth_clause[@]}" \( -type d \( -false "${prune_expr[@]}" \) -prune \) -o "${type_clause[@]}" "${name_clauses[@]}" "${hidden_exclude[@]}" -print0 2>/dev/null)"})
   for fp in $paths; do
     zstat -H _z "$fp" 2>/dev/null || continue
     ep="${_z[mtime]}"
@@ -353,10 +375,10 @@ _ff_impl() {
   (( ${#known} > 0 )) && pairs+=(${(f)"$(printf '%s\n' "${known[@]}" | sort -t'|' -k1,1n -k2,2rn)"})
   (( ${#rest} > 0 )) && pairs+=(${(f)"$(printf '%s\n' "${rest[@]}" | sort -t'|' -k4)"})
 
-  print -P "%F{cyan}# ${#pairs}%f"
   if (( limit > 0 )); then
     pairs=("${(@)pairs[1,limit]}")
   fi
+  print -P "%F{cyan}# ${#pairs}%f"
   (( ${#pairs} == 0 )) && return 0
   local line color disp tag
   local -a greppat
@@ -546,9 +568,7 @@ bindkey '^I' _smart_tab
 alias py=python3
 alias reload="source ~/.zshrc"
 alias cl=clear
-alias c=clear
 alias cc=claude
-alias ccc=clang
 unalias catmd catm 2>/dev/null
 catmd() {
   if [[ "$1" == *.json || "$1" == *.jsonl ]]; then

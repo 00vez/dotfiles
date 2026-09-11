@@ -10,20 +10,17 @@
 
 function tten { & "$HOME\bin\tten.ps1" @args }
 function ttde { & "$HOME\bin\ttde.ps1" @args }
-function top  { & "$HOME\Documents\lib\top.ps1" }
-function oc  { & opencode }
-function op  { & opencode --mini }
 function gst  { & git status }
-
+function oc { & opencode }
 
 function tailnet   { & "C:\Users\v\Documents\lib\llama_monitor\tailnet.ps1" }
-function hardfetch { & "C:\Users\v\Documents\lib\hardfetch\build\Release\hardfetch.exe" }
+function hardfetch { & "C:\Users\v\Documents\lib\hardfetch\bin\hardfetch.exe" }
 function ept { python C:\Users\v\Documents\lib\scripts\export_to_phone.py @args }
 
-# cd ohne Argument -> nach lib
+# cd ohne Argument -> nach ~/Documents
 if (Get-Alias cd -ErrorAction SilentlyContinue) { Remove-Item Alias:cd -Force }
 function cd {
-    if ($args.Count -eq 0) { Set-Location "C:\Users\v\Documents\lib" }
+    if ($args.Count -eq 0) { Set-Location "$HOME\Documents\lib" }
     else { Set-Location @args }
 }
 
@@ -36,38 +33,6 @@ function ssdm { ssh unraid 'ts=$(date "+%H:%M %d.%m"); for d in /dev/sd[a-z]; do
 # -- wt -- whats running
 function wt { python C:\Users\v\Documents\lib\wt-whats-running\wt.py @args }
 
-# -- lsr -- ls recursive
-function lsr {
-    param([int]$LimitKB = 0)
-    $root = (Get-Location).Path
-    Write-Host $root
-    Get-ChildItem -Path "." -Recurse -Force -File -ErrorAction SilentlyContinue |
-        Where-Object { $_.Attributes -notmatch 'System' -and $_.Length -gt 0 -and ($LimitKB -eq 0 -or $_.Length -le ($LimitKB * 1KB)) } |
-        Select-Object @{Name = 'KB Size'; Expression = { [math]::Round($_.Length / 1KB, 2) } },
-                      @{Name = 'Path'; Expression = { $_.FullName.Substring($root.Length + 1) } },
-                      Length, LastWriteTime |
-        Format-Table -AutoSize
-}
-
-# -- lsf -- ls find
-function lsf {
-    param([string]$NamePart, [string]$Extension)
-    if ([string]::IsNullOrWhiteSpace($NamePart) -and [string]::IsNullOrWhiteSpace($Extension)) {
-        throw "lsf braucht mindestens 1 Parameter: z.B. lsf wt oder lsf wt .py oder lsf '' .py"
-    }
-    Get-ChildItem -Path "." -Recurse -Force -File -ErrorAction SilentlyContinue |
-        Where-Object {
-            $_.Attributes -notmatch 'System' -and
-            ([string]::IsNullOrWhiteSpace($NamePart) -or $_.Name -like "*$NamePart*") -and
-            ([string]::IsNullOrWhiteSpace($Extension) -or $_.Extension -ieq $(if ($Extension.StartsWith('.')) { $Extension } else { ".$Extension" }))
-        } |
-        Sort-Object FullName -Unique |
-        Select-Object @{N = 'Path'; E = { $_.FullName } }
-}
-
-# -- lsi -- ls info
-# (lsi wurde in `i` zusammengeführt: Name, Extension, Size, Timestamps, FullName.)
-
 # ===========================================================================
 # zsh-style aliases & commands (ported for parity — verified under pwsh)
 # ===========================================================================
@@ -76,34 +41,28 @@ function lsf {
 # Color helper (parity with zsh's 256-color palette; requires ANSI host)
 # ---------------------------------------------------------------------------
 
+$Script:ExtColors = @{}
+$Script:ExtColorKeys = @{
+    'py' = '214'; 'js' = '227'; 'jsx' = '227'; 'ts' = '75'; 'tsx' = '75'; 'go' = '80'; 'rs' = '209';
+    'c' = '111'; 'cpp' = '111'; 'h' = '111'; 'java' = '173'; 'rb' = '203'; 'php' = '140';
+    'sh' = '150'; 'zsh' = '150'; 'ps1' = '150'; 'psm1' = '150';
+    'md' = '114'; 'txt' = '81';
+    'json' = '141'; 'jsonl' = '141';
+    'yaml' = '208'; 'yml' = '208';
+    'xml' = '172'; 'html' = '172'; 'toml' = '179'; 'csv' = '37';
+    'png' = '213'; 'jpg' = '213'; 'jpeg' = '213'; 'gif' = '213'; 'svg' = '213'; 'webp' = '213'; 'ico' = '213'; 'bmp' = '213'; 'tiff' = '213';
+    'mp4' = '207'; 'mov' = '207'; 'avi' = '207'; 'mkv' = '207'; 'webm' = '207'; 'flv' = '207'; 'wmv' = '207'; 'm4v' = '207';
+    'zip' = '203'; 'tar' = '203'; 'gz' = '203'; 'rar' = '203'; '7z' = '203'; 'bz2' = '203';
+    'exe' = '150'; 'cmd' = '150'; 'bat' = '150'
+}
+foreach ($k in $Script:ExtColorKeys.Keys) { $Script:ExtColors[$k] = $Script:ExtColorKeys[$k] }
+
 function Get-TypeColor {
-    param([Parameter(Mandatory)][string]$Path)
-    if (Test-Path -LiteralPath $Path -PathType Container) { return '34' } # blue (dirs stay simple)
+    param([Parameter(Mandatory)][string]$Path, [bool]$IsDir = $false)
+    if ($IsDir) { return '34' } # blue (dirs stay simple)
     $ext = [System.IO.Path]::GetExtension($Path).TrimStart('.').ToLower()
-    switch ($ext) {
-        'py'                                                    { return '214' }
-        { $_ -in 'js', 'jsx' }                                  { return '227' }
-        { $_ -in 'ts', 'tsx' }                                  { return '75' }
-        'go'                                                    { return '80' }
-        'rs'                                                    { return '209' }
-        { $_ -in 'c', 'cpp', 'h' }                              { return '111' }
-        'java'                                                  { return '173' }
-        'rb'                                                    { return '203' }
-        'php'                                                   { return '140' }
-        { $_ -in 'sh', 'zsh', 'ps1', 'psm1' }                   { return '150' }
-        'md'                                                    { return '114' }
-        'txt'                                                   { return '81' }
-        { $_ -in 'json', 'jsonl' }                              { return '141' }
-        { $_ -in 'yaml', 'yml' }                                { return '208' }
-        { $_ -in 'xml', 'html' }                                { return '172' }
-        'toml'                                                  { return '179' }
-        'csv'                                                   { return '37' }
-        { $_ -in 'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp', 'tiff' } { return '213' }
-        { $_ -in 'mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv', 'm4v' }          { return '207' }
-        { $_ -in 'zip', 'tar', 'gz', 'rar', '7z', 'bz2' }       { return '203' }
-        { $_ -in 'exe', 'ps1', 'cmd', 'bat' }                   { return '150' } # heuristic "executable" bucket
-        default                                                 { return '255' } # white-ish
-    }
+    if ($ext) { $c = $Script:ExtColors[$ext]; if ($c) { return $c } }
+    return '255'
 }
 
 function Write-Colored {
@@ -137,44 +96,43 @@ function Test-IsPruned {
 function Get-PrunedEntries {
     param(
         [Parameter(Mandatory)][string]$Root,
-        [bool]$ShowHidden = $false
+        [bool]$ShowHidden = $false,
+        [int]$MaxDepth = 0
     )
-    $stack = [System.Collections.Generic.Stack[string]]::new()
-    $stack.Push((Resolve-Path -LiteralPath $Root).Path)
+    $rootAbs = (Resolve-Path -LiteralPath $Root).Path
+    $stack = [System.Collections.Generic.Stack[System.IO.DirectoryInfo]]::new()
+    $stack.Push([System.IO.DirectoryInfo]::new($rootAbs))
     while ($stack.Count -gt 0) {
         $dir = $stack.Pop()
-        $entries = $null
-        try { $entries = [System.IO.Directory]::EnumerateFileSystemEntries($dir) } catch { continue }
-        foreach ($entry in $entries) {
-            $name = [System.IO.Path]::GetFileName($entry)
-            $isDir = [System.IO.Directory]::Exists($entry)
+        try {
+            foreach ($item in $dir.EnumerateFileSystemInfos()) {
+                $name = $item.Name
+                $isDir = [bool]($item.Attributes -band [System.IO.FileAttributes]::Directory)
 
-            # Path-pattern prune (e.g. */ggml/src) checked before name-based prune.
-            $pathPruned = $false
-            foreach ($pp in $Script:PrunePathPatterns) { if ($entry -like $pp) { $pathPruned = $true; break } }
+                # Path-pattern prune (e.g. */ggml/src) checked before name-based prune.
+                $pathPruned = $false
+                foreach ($pp in $Script:PrunePathPatterns) { if ($item.FullName -like $pp) { $pathPruned = $true; break } }
 
-            if ($isDir -and ($pathPruned -or (Test-IsPruned $name))) { continue }
+                if ($isDir -and ($pathPruned -or (Test-IsPruned $name))) { continue }
 
-            if (-not $ShowHidden) {
-                # Windows "hidden" is an ATTRIBUTE, not a dot-prefix convention like Unix.
-                # Hide on EITHER signal so dotfiles behave like on macOS/Linux.
-                $isHiddenAttr = $false
-                try {
-                    $attrs = [System.IO.File]::GetAttributes($entry)
-                    $isHiddenAttr = [bool]($attrs -band [System.IO.FileAttributes]::Hidden)
-                } catch {
-                    # Unreadable entries (e.g. device paths like \\.\nul) -> treat as visible.
-                    $isHiddenAttr = $false
+                if (-not $ShowHidden) {
+                    # Windows "hidden" is an ATTRIBUTE, not a dot-prefix convention like Unix.
+                    # Hide on EITHER signal so dotfiles behave like on macOS/Linux.
+                    $isHidden = [bool]($item.Attributes -band [System.IO.FileAttributes]::Hidden) -or $name.StartsWith('.')
+                    if ($isHidden) { continue }
                 }
-                $isDotfile = $name.StartsWith('.')
-                if ($isHiddenAttr -or $isDotfile) {
-                    if ($isDir) { continue } # don't descend into hidden dirs either
-                    else { continue }
+
+                $prefix = if ($isDir) { 'D' } else { 'F' }
+                "$prefix$($item.FullName)"
+                if ($isDir) {
+                    # Tiefe = Pfadsegmente relativ zum Root. Direkte Kinder = Tiefe 1.
+                    if ($MaxDepth -gt 0 -and $item.FullName.Substring($rootAbs.Length).Split([char]'\', [System.StringSplitOptions]::RemoveEmptyEntries).Count -ge $MaxDepth) { continue }
+                    $stack.Push($item)
                 }
             }
-
-            Write-Output $entry
-            if ($isDir) { $stack.Push($entry) }
+        } catch {
+            # Broken symlinks/junctions (z.B. scoop "current"-Links) überspringen.
+            continue
         }
     }
 }
@@ -185,25 +143,64 @@ function Get-PrunedEntries {
 # recency), then unrecognized types + directories (alphabetical).
 # ---------------------------------------------------------------------------
 
+function Show-FindHelp {
+    Write-Host (Write-Colored "f/ff – rekursive Dateisuche. " '36') "ohne Argument oder 'help' zeigt diese Parameterübersicht."
+    Write-Host ""
+    Write-Host "Syntax:  f  <pattern> [pattern2 ...] [.ext] [dir/] [*] [*N] [,text] [=text] [-N] [+N] [:N]"
+    Write-Host ""
+    Write-Host "  <pattern>   Dateiname enthält Muster (mehrere = UND-Verknüpfung)"
+    Write-Host "  .ext        nur diese Endung (z.B. .md .txt; mehrere = ODER)"
+    Write-Host "  dir/        nur in diesem Verzeichnis suchen (z.B. src/)"
+    Write-Host "  *           nur Verzeichnisse anzeigen (nicht mit ,/= kombinierbar)"
+    Write-Host "  *N          nur erste N Ergebnisse zeigen (z.B. *10)"
+    Write-Host "  ,text       Dateiinhalt muss Text enthalten (mehrere = UND)"
+    Write-Host "  =text       Treffer-Tag wenn Datei Text enthält (nur Anzeige)"
+    Write-Host "  -N / +N     N Zeilen Kontext vor/nach Content-Treffer (z.B. -2 +2)"
+    Write-Host "  :N          maximale Suchtiefe ab Suchroot (z.B. :2)"
+    Write-Host "  ff          wie f, zeigt zusätzlich versteckte Dateien"
+    Write-Host ""
+    Write-Host "Sortierung: txt > md > ausführbar > Bild > Video > bekannt (neueste zuerst), Rest alphabetisch."}
+
 function Invoke-FindImpl {
     param(
         [bool]$ShowHidden,
         [string[]]$FindArgs
     )
-    if ($FindArgs.Count -eq 0) {
-        Write-Host "usage: f/ff <pattern> [pattern2 ...] [.ext]"
+    if ($FindArgs.Count -eq 0 -or $FindArgs[0] -in 'help', '?', '--help', '-h') {
+        Show-FindHelp
         return
     }
 
     $patterns = @()
     $extensions = @()
+    $reqContent = @()
+    $optContent = @()
     $root = '.'
     $rootSet = $false
     $dirsOnly = $false
+    $maxDepth = 0
+    $limit = 0
+    $beforeCtx = 0
+    $afterCtx = 0
 
     foreach ($arg in $FindArgs) {
         if ($arg -eq '*') {
             $dirsOnly = $true
+        }
+        elseif ($arg -match '^\*(\d+)$') {
+            $limit = [int]$Matches[1]
+        }
+        elseif ($arg -match '^,(.+)$') {
+            $reqContent += $Matches[1]
+        }
+        elseif ($arg -match '^=(.+)$') {
+            $optContent += $Matches[1]
+        }
+        elseif ($arg -match '^-(\d+)$') {
+            $beforeCtx = [int]$Matches[1]
+        }
+        elseif ($arg -match '^\+(\d+)$') {
+            $afterCtx = [int]$Matches[1]
         }
         elseif ($arg -eq '.') {
             if ($patterns.Count -gt 0) {
@@ -272,74 +269,113 @@ function Invoke-FindImpl {
         }
     }
 
-    if ($patterns.Count -eq 0 -and $extensions.Count -eq 0 -and -not $dirsOnly) {
-        Write-Host "usage: f/ff [dir/] <pattern> [pattern2 ...] [.ext] [.ext2 ...] [*]"
+    if ($patterns.Count -eq 0 -and $extensions.Count -eq 0 -and $reqContent.Count -eq 0 -and $optContent.Count -eq 0 -and -not $dirsOnly -and $maxDepth -eq 0) {
+        Show-FindHelp
+        return
+    }
+    if ($dirsOnly -and ($reqContent.Count -gt 0 -or $optContent.Count -gt 0)) {
+        Write-Host "f/ff: Content-Suche nicht mit '*' kombinierbar"
         return
     }
 
-    $entries = Get-PrunedEntries -Root $root -ShowHidden $ShowHidden
-    if ($dirsOnly) {
-        $entries = $entries | Where-Object { [System.IO.Directory]::Exists($_) }
-    }
+    # Sammeln, Content-Filter, Ranking wie zsh: txt > md > exe > Bild > Video >
+    # bekannt (neueste zuerst), Rest alphabetisch. Limit vor Count anwenden.
+    $rootAbs = (Resolve-Path -LiteralPath $root).Path
+    Write-Host (Write-Colored $rootAbs '36')
 
-    # AND across patterns; patterns containing a path separator match full path, else basename.
-    foreach ($p in $patterns) {
-        $isPathPattern = $p -match '[\\/]'
-        $glob = if ($p -match '\*') { $p } else { "*$p*" }
-        $entries = $entries | Where-Object {
-            if ($isPathPattern) { $_ -like "*$glob*" -or ($_ -replace '\\', '/') -like "*$glob*" }
-            else { [System.IO.Path]::GetFileName($_) -like $glob }
+    $found = @()
+    foreach ($raw in Get-PrunedEntries -Root $root -ShowHidden $ShowHidden -MaxDepth $maxDepth) {
+        $isDir = $raw[0] -eq 'D'
+        $entry = $raw.Substring(1)
+        if ($dirsOnly -and -not $isDir) { continue }
+        $name = [System.IO.Path]::GetFileName($entry)
+        if ($patterns.Count -gt 0) {
+            $skip = $false
+            foreach ($p in $patterns) {
+                $glob = if ($p -match '\*') { $p } else { "*$p*" }
+                if ($p -match '[\\/]') {
+                    if ($entry -notlike "*$glob*" -and ($entry -replace '\\', '/') -notlike "*$glob*") { $skip = $true; break }
+                } else {
+                    if ($name -notlike $glob) { $skip = $true; break }
+                }
+            }
+            if ($skip) { continue }
         }
-    }
-
-    # OR across extensions
-    if ($extensions.Count -gt 0) {
-        $entries = $entries | Where-Object {
-            $name = [System.IO.Path]::GetFileName($_)
+        if ($extensions.Count -gt 0) {
             $matched = $false
             foreach ($e in $extensions) { if ($name -like "*$e") { $matched = $true; break } }
-            $matched
+            if (-not $matched) { continue }
         }
+        $found += [pscustomobject]@{ Entry = $entry; IsDir = $isDir }
     }
 
-    $entries = @($entries)
-    if ($entries.Count -eq 0) {
-        Write-Host (Write-Colored "# 0 matches found in $((Resolve-Path $root).Path)" '36')
-        return
+    $tags = @{}
+    if ($reqContent.Count -gt 0 -or $optContent.Count -gt 0) {
+        $filtered = @()
+        foreach ($it in $found) {
+            $fp = $it.Entry
+            if (-not (Test-Path -LiteralPath $fp -PathType Leaf)) {
+                if ($reqContent.Count -eq 0) { $filtered += $it }
+                continue
+            }
+            $ok = $true
+            foreach ($rc in $reqContent) {
+                if (-not (Select-String -LiteralPath $fp -Pattern $rc -SimpleMatch -Quiet)) { $ok = $false; break }
+            }
+            if (-not $ok) { continue }
+            $tl = @()
+            foreach ($oc in $optContent) {
+                if (Select-String -LiteralPath $fp -Pattern $oc -SimpleMatch -Quiet) { $tl += $oc }
+            }
+            if ($tl.Count -gt 0) { $tags[$fp] = ($tl -join ', ') }
+            $filtered += $it
+        }
+        $found = $filtered
     }
 
-    $imgExt = 'png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'ico', 'bmp', 'tiff'
-    $vidExt = 'mp4', 'mov', 'avi', 'mkv', 'webm', 'flv', 'wmv', 'm4v'
-    $knownExt = 'py', 'js', 'jsx', 'ts', 'tsx', 'go', 'rs', 'c', 'cpp', 'h', 'java', 'rb', 'php',
-                'sh', 'zsh', 'ps1', 'json', 'jsonl', 'yaml', 'yml', 'xml', 'html', 'toml', 'csv',
-                'zip', 'tar', 'gz', 'rar', '7z', 'bz2'
-
-    $ranked = foreach ($e in $entries) {
-        $isDir = [System.IO.Directory]::Exists($e)
-        $ext = [System.IO.Path]::GetExtension($e).TrimStart('.').ToLower()
-        $rank =
-            if ($isDir) { 6 }
-            elseif ($ext -eq 'txt') { 0 }
-            elseif ($ext -eq 'md') { 1 }
-            elseif ($ext -in 'exe', 'cmd', 'bat', 'ps1') { 2 } # Windows has no unix "+x bit"; approximate via extension
-            elseif ($ext -in $imgExt) { 3 }
-            elseif ($ext -in $vidExt) { 4 }
-            elseif ($ext -in $knownExt) { 5 }
-            else { 6 }
-        [PSCustomObject]@{ Path = $e; Rank = $rank; IsDir = $isDir; LastWrite = (Get-Item -LiteralPath $e -Force).LastWriteTime }
+    $knownExt = @('py','js','jsx','ts','tsx','go','rs','c','cpp','h','java','rb','php','sh','zsh','ps1','psm1','json','jsonl','yaml','yml','xml','html','toml','csv','zip','tar','gz','rar','7z','bz2')
+    $imgExt = @('png','jpg','jpeg','gif','svg','webp','ico','bmp','tiff')
+    $vidExt = @('mp4','mov','avi','mkv','webm','flv','wmv','m4v')
+    $ranked = @()
+    foreach ($it in $found) {
+        $ext = [System.IO.Path]::GetExtension($it.Entry).TrimStart('.').ToLower()
+        if ($it.IsDir) { $rank = 6 }
+        elseif ($ext -eq 'txt') { $rank = 0 }
+        elseif ($ext -eq 'md') { $rank = 1 }
+        elseif ($imgExt -contains $ext) { $rank = 3 }
+        elseif ($vidExt -contains $ext) { $rank = 4 }
+        elseif ($knownExt -contains $ext) { $rank = 5 }
+        else {
+            try { $isExe = -not (Test-Path -LiteralPath $it.Entry -PathType Container) -and ((Get-Item -LiteralPath $it.Entry).Extension -match '^\.(exe|cmd|bat|ps1|sh)$') } catch { $isExe = $false }
+            $rank = if ($isExe) { 2 } else { 6 }
+        }
+        try { $mtime = (Get-Item -LiteralPath $it.Entry).LastWriteTime } catch { $mtime = [datetime]::MinValue }
+        $ranked += [pscustomobject]@{ Rank = $rank; Mtime = $mtime; Item = $it }
     }
+    $known = @($ranked | Where-Object { $_.Rank -le 5 } | Sort-Object Rank, @{ E = 'Mtime'; Descending = $true })
+    $rest = @($ranked | Where-Object { $_.Rank -eq 6 } | Sort-Object { $_.Item.Entry })
+    $ordered = @($known + $rest)
+    if ($limit -gt 0 -and $ordered.Count -gt $limit) { $ordered = @($ordered[0..($limit - 1)]) }
 
-    $known = $ranked | Where-Object { $_.Rank -le 5 } | Sort-Object Rank, @{Expression = 'LastWrite'; Descending = $true }
-    $rest = $ranked | Where-Object { $_.Rank -eq 6 } | Sort-Object Path
-    $final = @($known) + @($rest)
-
-    Write-Host (Write-Colored "# $($final.Count) matches found in $((Resolve-Path $root).Path)" '36')
-    foreach ($r in $final) {
-        $rel = Resolve-Path -Relative -LiteralPath $r.Path
-        $disp = if ($r.IsDir) { "$rel\" } else { $rel }
-        $color = Get-TypeColor $r.Path
-        Write-Host (Write-Colored $disp $color)
+    $count = 0
+    foreach ($r in $ordered) {
+        $entry = $r.Item.Entry; $isDir = $r.Item.IsDir
+        $rel = $entry.Substring($rootAbs.Length).TrimStart('\')
+        if ($isDir) { $rel = "$rel\" }
+        $line = Write-Colored $rel (Get-TypeColor $entry -IsDir $isDir)
+        if ($tags.ContainsKey($entry)) { $line += "  $(Write-Colored "[$($tags[$entry])]" '3')" }
+        Write-Host "  $line"
+        if ($reqContent.Count -gt 0 -and (Test-Path -LiteralPath $entry -PathType Leaf)) {
+            $ctx = @()
+            foreach ($rc in $reqContent) { $ctx += Select-String -LiteralPath $entry -Pattern $rc -SimpleMatch -Context $beforeCtx,$afterCtx }
+            foreach ($m in $ctx) {
+                $txt = ($m.Line.Length -gt 64) ? $m.Line.Substring(0,64) + '…' : $m.Line
+                Write-Host ("      > {0,5}  {1}" -f $m.LineNumber, $txt)
+            }
+        }
+        $count++
     }
+    Write-Host (Write-Colored "Anzahl # $count" '36')
 }
 
 function f  { Invoke-FindImpl -ShowHidden $false -FindArgs $args }
@@ -352,10 +388,7 @@ function ff { Invoke-FindImpl -ShowHidden $true  -FindArgs $args }
 function t {
     $dirsOnly = $false
     $Dir = '.'
-    $remaining = @()
-    $skipNext = $false
     for ($i = 0; $i -lt $args.Count; $i++) {
-        if ($skipNext) { $skipNext = $false; continue }
         if ($i -eq 0 -and $args[$i] -eq '*') {
             $dirsOnly = $true
             continue
@@ -364,7 +397,6 @@ function t {
             $Dir = $args[$i]
             continue
         }
-        $remaining += $args[$i]
     }
 
     if (-not (Test-Path -LiteralPath $Dir -PathType Container)) {
@@ -397,7 +429,7 @@ function t {
             $item = $items[$idx]
             $isLast = $idx -eq ($items.Count - 1)
             $connector = if ($isLast) { '└── ' } else { '├── ' }
-            $color = Get-TypeColor $item.FullName
+            $color = Get-TypeColor $item.FullName -IsDir $item.PSIsContainer
             $label = if ($item.PSIsContainer) { "$($item.Name)\" } else { $item.Name }
             Write-Host "$Prefix$connector$(Write-Colored $label $color)"
             $Script:TreeShown++
@@ -486,7 +518,7 @@ function ll {
     foreach ($item in $items) {
         $size = if ($item.PSIsContainer) { '' } else { Format-Bytes $item.Length }
         $mtime = $item.LastWriteTime.ToString('yyyy-MM-dd HH:mm')
-        $color = Get-TypeColor $item.FullName
+        $color = Get-TypeColor $item.FullName -IsDir $item.PSIsContainer
         $name = if ($item.PSIsContainer) { "$($item.Name)\" } else { $item.Name }
         $meta = "{0,-6} {1,8}  {2}" -f $item.Mode, $size, $mtime
         Write-Host (Write-Colored $meta '242') "  $(Write-Colored $name $color)"
@@ -564,19 +596,27 @@ function ... { Set-Location ..\.. }
 function .... { Set-Location ..\..\.. }
 
 function l {
-    param([string]$Dir = '.')
-    Get-ChildItem -LiteralPath $Dir -Force | Sort-Object Name |
+    $dirsOnly = $false
+    $Dir = '.'
+    if ($args.Count -gt 0 -and $args[0] -eq '*') {
+        $dirsOnly = $true
+        if ($args.Count -gt 1) { $Dir = $args[1] }
+    }
+    elseif ($args.Count -gt 0) { $Dir = $args[0] }
+
+    if (-not (Test-Path -LiteralPath $Dir -PathType Container)) {
+        Write-Host "l: '$Dir' is not a directory"
+        return
+    }
+    Get-ChildItem -LiteralPath $Dir -Force |
+        Where-Object { -not $dirsOnly -or $_.PSIsContainer } |
+        Sort-Object Name |
         Format-Table Mode, LastWriteTime, @{Name = 'Size'; Expression = { Format-Bytes $_.Length } }, Name -AutoSize
 }
 
 # ===========================================================================
 # Host / module setup
 # ===========================================================================
-
-# UTF-8 für die Ausgabekodierung: mdcat/jq/pygmentize geben UTF-8 aus; ohne
-# dieses Setting dekodiert pwsh deren Output mit der OEM-Codepage (z.B. 850)
-# und Umlaute werden zu Mojibake (├ñ statt ä).
-try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false) } catch { }
 
 # PowerToys CommandNotFound module
 Import-Module -Name Microsoft.WinGet.CommandNotFound
@@ -599,13 +639,3 @@ if (-not $Script:AutocdRegistered) {
     }
     $Script:AutocdRegistered = $true
 }
-
-# Clear screen on load (defensive: only when a real console is attached).
-try { Clear-Host } catch { }
-
-$env:OPENAI_API_KEY = "local-dummy"
-
-
-
-# hardfetch
-Set-Alias -Name hrf -Value 'C:\Users\v\Documents\lib\hardfetch\bin\hardfetch.exe'
