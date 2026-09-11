@@ -33,6 +33,43 @@ function ssdm { ssh unraid 'ts=$(date "+%H:%M %d.%m"); for d in /dev/sd[a-z]; do
 # -- wt -- whats running
 function wt { python C:\Users\v\Documents\lib\wt-whats-running\wt.py @args }
 
+# -- tmux sessions (socket per name) --
+function tn {
+    param(
+        [Parameter(Position = 0)]
+        [string]$Name = 'main'
+    )
+
+    tmux -L $Name new-session -A -s $Name
+}
+
+function ta {
+    param(
+        [Parameter(Position = 0)]
+        [string]$Name = 'main'
+    )
+
+    tmux -L $Name attach -t $Name
+}
+
+function tl {
+    param(
+        [Parameter(Position = 0)]
+        [string]$Name = 'main'
+    )
+
+    tmux -L $Name ls
+}
+
+function tk {
+    param(
+        [Parameter(Position = 0)]
+        [string]$Name = 'main'
+    )
+
+    tmux -L $Name kill-server
+}
+
 # ===========================================================================
 # zsh-style aliases & commands (ported for parity — verified under pwsh)
 # ===========================================================================

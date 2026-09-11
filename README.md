@@ -95,16 +95,15 @@ also nicht escaped werden.
 
 | Befehl | Ersetzung / Funktion | Kurzbeschreibung |
 |--------|----------------------|------------------|
-| `f` | Funktion `_ff_impl` | Dateisuche: `f <pattern> [.ext] [,text] [=text] [-N] [+N] [*]` (ohne versteckte) |
+| `f` | Funktion `_ff_impl` | Dateisuche: `f <pattern> [.ext] [dir/] [*] [*N] [,text] [=text] [-N] [+N] [:N]` (ohne versteckte) |
 | `ff` | Funktion `_ff_impl` | Wie `f`, inklusive versteckter Dateien |
 | `ll [dir]` | Funktion | Verzeichnisinhalt mit Größe + Datum, farbig nach Typ |
 | `t [dir]` | Funktion | `tree`-Ansicht, ignoriert `.git`, `node_modules`, `venv`, Build-Dirs etc. |
 | `i [pfad]` | Funktion | Metadaten: Typ, Größe, Rechte, Owner, mtime/ctime |
 | `py` | `python3` | Python 3 Aufruf |
 | `reload` | `source ~/.zshrc` | Config neu laden |
-| `cl` / `c` | `clear` | Terminal leeren |
+| `cl` | `clear` | Terminal leeren |
 | `cc` | `claude` | Claude-CLI (separat installieren) |
-| `ccc` | `clang` | C-Compiler (Xcode CLT / LLVM) |
 | `catmd <datei>` | Funktion | Markdown/JSON/YAML farbig via `less` (mdcat/jq/pygmentize) |
 | `catm <datei>` | Funktion | Wie `catmd`, aber ohne Pager |
 
@@ -115,8 +114,11 @@ also nicht escaped werden.
 - `,text` – Datei MUSS `text` enthalten (Pflicht-Inhalt)
 - `=text` – Datei enthält `text` optional (wird als `[tag]` angezeigt)
 - `-N` / `+N` – `N` Zeilen Kontext vor/nach Treffer
-- `*` – nur Verzeichnisse
+- `*` – nur Verzeichnisse (nicht mit `,text`/`=text` kombinierbar)
+- `*N` – nur erste N Ergebnisse (Count zählt Angezeigte)
 - `dir/` oder `.` – Durchsucht nur dieses Verzeichnis
+- `:N` – maximale Suchtiefe ab Suchroot
+- Sortierung: txt > md > ausführbar > Bild > Video > bekannt (neueste zuerst), Rest alphabetisch
 
 ---
 
@@ -145,7 +147,6 @@ einen Hinweis aus, die Shell startet trotzdem.
 | Tool | Wird genutzt von | Installation |
 |------|------------------|--------------|
 | `pyenv` | Python-Versionierung (automatisch geladen, falls vorhanden) | `brew install pyenv` |
-| `clang` | Alias `ccc` | Xcode Command Line Tools / `brew install llvm` |
 | `claude` | Alias `cc` | `npm install -g @anthropic-ai/claude-code` |
 
 ---
