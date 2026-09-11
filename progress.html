@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dotfiles (zsh + pwsh) – Protokoll &amp; Fortschritt</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; color: #222; line-height: 1.5; }
+h1 { font-size: 1.4rem; }
+h2 { font-size: 1.05rem; margin-top: 1.8rem; border-bottom: 1px solid #ddd; padding-bottom: .2rem; }
+h3 { font-size: .95rem; margin-top: 1rem; color: #444; }
+li { margin: .2rem 0; }
+code { background: #f4f4f4; padding: .1rem .3rem; border-radius: 3px; font-size: .9em; }
+.ok::before { content: "✓ "; color: #1a7f37; }
+.todo::before { content: "→ "; color: #9a6700; }
+.warn::before { content: "⚠ "; color: #b35900; }
+.date { font-size: .9em; color: #666; margin-bottom: 1rem; }
+table { width: 100%; border-collapse: collapse; font-size: .9em; }
+th, td { padding: .3rem; text-align: left; vertical-align: top; border-bottom: 1px solid #eee; }
+th { border-bottom-color: #ddd; }
+</style>
+</head>
+<body>
+<div class="date">Protokoll zuletzt aktualisiert: 06.09.2026</div>
+<h1>dotfiles (zsh + pwsh) – Protokoll &amp; Fortschritt</h1>
+
+<h2>Projektziel</h2>
+<ul>
+<li>Persönliche Shell-Dotfiles: eine portable <code>.zshrc</code> für macOS/Linux/WSL2 und zwei pwsh-Profile für Windows (Vollprofil mit privaten Helfern + reduzierte <code>.txt</code>-Variante mit globalem zsh-Parity-Set).</li>
+<li>Befehle <code>f</code>/<code>ff</code> (Dateisuche, streaming), <code>ll</code>, <code>l</code>, <code>t</code>, <code>i</code>, <code>catmd</code>/<code>catm</code> über Shells hinweg funktional gleich.</li>
+</ul>
+
+<h2>Kontext und Ausgangslage</h2>
+<ul>
+<li>Repo <code>projects/zsh</code> im dev-bootcamp, eigenes Git-Repo mit Remote <code>https://github.com/00vez/dotfiles.git</code>, Branch <code>master</code>.</li>
+<li>Aktuelle commits: <code>414c55f</code> "Powershell Profile", <code>0b31f74</code> pwsh-Profil hinzugefügt, zsh-Verlauf cross-platform (macOS Intel/Silicon, Linux, WSL2).</li>
+<li>Zielplattform pwsh: Windows 11, PowerShell 7.2+, Windows Terminal. Diese Maschine (nutzer <code>v</code>).</li>
+<li>Installierte Tools auf diesem Host: <code>mdcat</code>, <code>pygmentize</code>, <code>tree</code>, <code>python3</code>. Fehlend/Nicht-Checked (Zielplattform): <code>brew</code>, <code>zsh</code>, <code>fzf</code>, <code>fd</code>, <code>tac</code> — die zsh-Seite zielt auf macOS/Linux.</li>
+</ul>
+
+<h2>Architektur und Entscheidungen</h2>
+<ul>
+<li class="ok"><strong>Zwei pwsh-Varianten getrennt:</strong> <code>Microsoft.PowerShell_profile.ps1</code> (Voll: global + 9 private Maschinen-Funktionen) und <code>Microsoft.PowerShell_profile.ps1.txt</code> (nur globales zsh-Parity-Set, kein persönlicher Pfad). Privates referenziert bloß noch sich selbst, keine Alt-Namen in Kommentaren/README.</li>
+<li class="ok"><strong><code>:N</code> als Tiefen-Syntax statt <code>@N</code>:</strong> <code>@1</code> parsede PowerShell als Splatting/Array-Literal und vernichtete das Argument. <code>:3</code> bleibt String. Begründung im Protokoll vom 06.09.</li>
+<li class="ok"><strong>Streaming-Suche:</strong> Ausgabe startet mit absolutem Suchpfad, Ergebnisse erscheinen sofort (Batch-Flush über <code>StringBuilder</code>, alle 30 Einträge), Abschlusszeile <code>Anzahl # N</code>. Globale Sortierung verworfen — nicht mit Streaming vereinbar.</li>
+<li class="warn"><strong>Performance-Optimierung ohne Semantik-Kontrolle auf Produktivdaten:</strong> <code>Get-PrunedEntries</code> streamt <code>D</code>/<code>F</code>-Präfix-Pfade statt <code>Directory.Exists</code> je Eintrag; <code>Get-TypeColor</code> ohne <code>Test-Path</code>, Farbe via <code>ExtColors</code>-Dictionary; Aufrufer liefern <code>-IsDir</code>. Bricht kaputte Junctions abfangen via <code>try/catch</code>. Verhalten auf Testbäumen verifiziert, aber die <code>-IsDir</code>-Pflicht für alle Aufrufer ist ein Vertrag, kein Guard.</li>
+</ul>
+
+<h2>Akzeptanzkriterien</h2>
+<ul>
+<li class="ok">Beide pwsh-Dateien parsen ohne Syntaxfehler (<code>Parser.ParseFile</code> OK).</li>
+<li class="ok">Vollprofil == lokales <code>$PROFILE</code>-Vorbild; <code>l</code> versteht dieselbe Syntax wie <code>ll</code> (<code>l *</code> = nur Verzeichnisse).</li>
+<li class="ok"><code>f</code>/<code>ff</code> streamen: 1. Zeile absoluter Pfad, dann Ergebnisse, letzte Zeile <code>Anzahl # N</code>; Ergebniszeilen == Zähler auf 5 Testfällen.</li>
+<li class="ok">Maximale Suchtiefe <code>:N</code> wirksam (Tiefe 1 vs. 2 vs unbegrenzt; Verzeichnisse und Dateien korrekt ausgefiltert).</li>
+<li class="todo">Live-Sync: Referenz <code>$PROFILE</code> (<code>C:\Users\v\Documents\PowerShell\Microsoft.PowerShell_profile.ps1</code>) auf den bereinigten Stand bringen; im Repo liegt der Code, auf dem Host noch nicht.</li>
+<li class="warn">zsh-<code>.zshrc</code> hat <code>:N</code>/Help noch nicht; „zsh und txt funktional gleich" ist nur für die Betriebsmenge geprüft, nicht für die neuen pwsh-only Features.</li>
+</ul>
+
+<h2>Aktueller Status</h2>
+<ul>
+<li class="ok">Alle gewünschten Bereinigungen im pwsh-Zweig durchgeführt: private Funktionen <code>oc</code>, <code>op</code>, <code>lsr</code>, <code>lsf</code>, <code>top</code>, <code>hrf</code> entfernt; <code>c</code>-alias (zsh) und <code>ccc</code> entfernt; <code>cc</code>/<code>py</code> bleiben; <code>hardfetch</code> zeigt auf <code>bin\hardfetch.exe</code>; <code>cd</code> ohne Argument → <code>$HOME\Documents</code>; keine Alt-Namen mehr referenziert.
+</li>
+<li class="ok"><code>f</code>/<code>ff</code>: Streaming, <code>:N</code>-Tiefenlimit, kurze Hilfe via <code>f</code> ohne Argument / <code>f help</code> / <code>f ?</code>.</li>
+<li class="ok">Performance: 650 Einträge ~120&nbsp;ms, 10.000 Einträge ~1,3&nbsp;s (vorher ~850&nbsp;ms bzw. ~5,5&nbsp;s).</li>
+<li class="warn">Nicht committet: alle oben genannten Änderungen in <code>projects/zsh</code> sind in der Arbeitskopie, Commit/Erstellung ausstehend.</li>
+</ul>
+
+<h2>Offen</h2>
+<ul>
+<li class="todo">Kenfrage Anwender: lokale <code>$PROFILE</code>-Datei auf den Repo-Stand aktualisieren (Kopie), damit die Bereinigung im Alltag greift.</li>
+<li class="todo">Session eingefroren: entscheiden, ob die <code>:N</code>/Help-Features nach zsh portiert werden sollen (Paritäts-Anspruch laut README).</li>
+<li class="todo">Eigener Branch anlegen und commiten; inkl. sauberer Commit-Messages ohne Co-Author-Zeile.</li>
+<li class="todo">Bootcamp-Root: <code>projects/</code> untracked; <code>zsh/.zshrc</code>-Altkopie, <code>pwsh/README.md</code> (zeigt auf gelöschtes Profil), uncommittete <code>guides/</code> + CSV noch offen.</li>
+<li class="warn"><code>Get-TypeColor</code> erwartet jetzt explizit <code>-IsDir</code>; fehlt es an einer Stelle, fällt die Verzeichnisfarbe aus (Default <code>$false</code>). Aufrufer geprüft: f-Loop, <code>t</code>, <code>ll</code>.</li>
+</ul>
+
+<h2>Protokoll vom 06.09.2026</h2>
+<h3>Analyse und Befund</h3>
+<ul>
+<li class="ok"><strong>Zwei pwsh-Dateien exakt identifiziert:</strong> Vollprofil (611→561 Zeilen) mit privaten Helfern; <code>.txt</code>-Reduktion (579→536 Zeilen) mit Duplikat-/abgeschnittenen Sektions-Header-Resten. Beide parsen.</li>
+<li class="ok"><strong>Dead Code gefunden und entfernt:</strong> <code>hrf</code> (toter <code>bin\hardfetch.exe</code>-Pfad), tote Variablen <code>$remaining</code>/<code>$skipNext</code> in <code>t</code>, duplizierte Sektions-Header, Referenzen auf alte Befehle in Kommentaren/README.</li>
+<li class="ok"><strong>Performance-Ursache isoliert:</strong> <code>Test-Path</code>/ <code>[System.IO.Directory]::Exists</code> je Eintrag (<code>Get-TypeColor</code>, Walker) war der Flaschenhals, nicht die Dateisystem-Enumeration selbst.</li>
+<li class="ok"><strong>Splatting-Falle:</strong> <code>f @1</code> wird von PowerShell als Array-Literal <code>@(1)</code> geparst → Argument verloren. Umstieg auf <code>:N</code>.</li>
+<li class="ok"><strong>Broken Junctions:</strong> neue <code>EnumerateFileSystemInfos</code>-Version warf bei scoop-Junction-Ketten (<code>apps\scoop-search\current</code> etc.); behoben durch <code>try/catch</code> um die Enumeration.</li>
+</ul>
+<h3>Implementierung</h3>
+<ul>
+<li class="ok"><strong>pwsh-Profile bereinigt:</strong> private Funktionen, Alt-Aliase, Maschinen-Pfade; <code>cd</code>-Default auf <code>$HOME\Documents</code>; <code>hardfetch</code> auf <code>bin\hardfetch.exe</code>.</li>
+<li class="ok"><strong><code>l</code> = <code>ll</code>-Syntax:</strong> <code>*</code>-Flag (nur Dirs), optionales Zielverzeichnis.</li>
+<li class="ok"><strong>Tiefenlimit <code>:N</code> in f/ff:</strong> Parse <code>^:(\d+)$</code>, übergeben an <code>Get-PrunedEntries -MaxDepth</code>; Tiefe = Pfadsegmente relativ zum Root, gestoppte Descension im Walker.</li>
+<li class="ok"><strong>Hilfe:</strong> <code>Show-FindHelp</code> bei leeren Argumenten, <code>help</code>, <code>?</code>, <code>--help</code>, <code>-h</code> sowie im „kein Suchkriterium"-Fall.</li>
+<li class="ok"><strong>Streaming:</strong> <code>StringBuilder</code>-Batch (alle 30 Einträge einmal <code>Write-Host</code>), relative Pfade per Substring statt <code>Resolve-Path -Relative</code>.</li>
+</ul>
+<h3>Verifikation</h3>
+<ul>
+<li class="ok"><strong>Parse:</strong> beide Dateien <code>Parser.ParseFile</code> ohne Fehler.</li>
+<li class="ok"><strong>Streaming-Zählercheck</strong> (5 Fälle): <code>f .txt</code> 320/320, <code>f file28</code> 16/16, <code>f * :1</code> 8/8, <code>f :2</code> 648/648, <code>f nichts</code> 0/0; jeweils 1 Pfadzeile an erster Position.</li>
+<li class="ok"><strong>Tiefe:</strong> <code>.txt :1</code> → nur Root-Ebene; <code>:2</code> schließt <code>dirA\a.txt</code> ein, <code>deep.txt</code> (Ebene 3) erst ohne Limit.</li>
+<li class="ok"><strong>Broken-Junction-Host-Test:</strong> <code>f skill.md</code> in <code>$HOME</code> liefert 19 Treffer ohne Fehler (früher hätten scoop-Links die Suche gekappt).</li>
+<li class="ok"><strong>Performance:</strong> perftree 650 Einträge ~120&nbsp;ms, bigtree 10.000 ~1,3&nbsp;s.</li>
+</ul>
+<h3>Gesammelte Commits</h3>
+<ul>
+<li class="warn">Noch keine Commits für diese Session — Änderungen liegen in der Arbeitskopie von <code>projects/zsh</code>.</li>
+</ul>
+
+<h2>Code und Repository</h2>
+<ul>
+<li>Repo: <code>C:\dev\bootcamp\dev-bootcamp\projects\zsh</code> (Remote <code>00vez/dotfiles</code>), Branch <code>master</code></li>
+<li>Relevante Dateien: <code>.zshrc</code>, <code>Microsoft.PowerShell_profile.ps1</code>, <code>Microsoft.PowerShell_profile.ps1.txt</code>, <code>README.md</code>, <code>.gitattributes</code></li>
+</ul>
+
+<h2>Build, Tests und Skripte</h2>
+<ul>
+<li><code>pwsh -NoProfile -File check-parse.ps1</code> — parse-check beider Profile (Parser aus <code>C:\Users\v\AppData\Local\Temp\opencode\check-parse.ps1</code>)</li>
+<li>Ad-hoc-Verifikation: Skripte unter <code>C:\Users\v\AppData\Local\Temp\opencode\</code> (<code>stream-verify.ps1</code>, <code>depth-test.ps1</code>, <code>bench*.ps1</code>)</li>
+</ul>
+
+<h2>Deployment und Betrieb</h2>
+<ul>
+<li>Installation pwsh (Vollprofil): <code>Copy-Item .\Microsoft.PowerShell_profile.ps1 $PROFILE -Force</code>, danach neues Terminal bzw. <code>. $PROFILE</code></li>
+<li>Installation zsh: <code>ln -sf ~/dotfiles/.zshrc ~/.zshrc</code> (siehe README) — nicht auf dieser Maschine.</li>
+<li>Live-Sync auf diesem Host noch offen (siehe Offen).</li>
+</ul>
+
+<h2>Infrastruktur</h2>
+<table>
+<thead>
+<tr><th>Komponente</th><th>Host</th><th>Zweck</th></tr>
+</thead>
+<tbody>
+<tr><td>pwsh-Vollprofil-Quelle</td><td><code>C:\Users\v\Documents\PowerShell\Microsoft.PowerShell_profile.ps1</code></td><td>Lokales PowerShell-Profil (noch alter Stand)</td></tr>
+<tr><td>hardfetch</td><td><code>C:\Users\v\Documents\lib\hardfetch\bin\hardfetch.exe</code></td><td>Systeminfo-Tool, Ziel der <code>hardfetch</code>-Funktion</td></tr>
+</tbody>
+</table>
+
+</body>
+</html>

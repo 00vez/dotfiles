@@ -93,17 +93,19 @@ reload
 Alle Suchbefehle sind als `noglob` deklariert – Sternchen und Klammern müssen
 also nicht escaped werden.
 
-| Befehl | Ersetzung / Funktion | Kurzbeschreibung |
-|--------|----------------------|------------------|
-| `f` | Funktion `_ff_impl` | Dateisuche: `f <pattern> [.ext] [dir/] [*] [*N] [,text] [=text] [-N] [+N] [:N]` (ohne versteckte) |
-| `ff` | Funktion `_ff_impl` | Wie `f`, inklusive versteckter Dateien |
+### zsh (`.zshrc`)
+
+| Befehl | Typ | Beschreibung |
+|--------|-----|--------------|
+| `f` | Funktion | Dateisuche ohne versteckte Dateien: `f <pattern> [.ext] [dir/] [*] [*N] [,text] [=text] [-N] [+N] [:N]` |
+| `ff` | Funktion | Wie `f`, inklusive versteckter Dateien |
 | `ll [dir]` | Funktion | Verzeichnisinhalt mit Größe + Datum, farbig nach Typ |
 | `t [dir]` | Funktion | `tree`-Ansicht, ignoriert `.git`, `node_modules`, `venv`, Build-Dirs etc. |
 | `i [pfad]` | Funktion | Metadaten: Typ, Größe, Rechte, Owner, mtime/ctime |
-| `py` | `python3` | Python 3 Aufruf |
-| `reload` | `source ~/.zshrc` | Config neu laden |
-| `cl` | `clear` | Terminal leeren |
-| `cc` | `claude` | Claude-CLI (separat installieren) |
+| `py` | Alias | Python 3 Aufruf (`python3`) |
+| `reload` | Alias | Config neu laden (`source ~/.zshrc`) |
+| `cl` | Alias | Terminal leeren (`clear`) |
+| `cc` | Alias | Claude-CLI (`claude`, separat installieren) |
 | `catmd <datei>` | Funktion | Markdown/JSON/YAML farbig via `less` (mdcat/jq/pygmentize) |
 | `catm <datei>` | Funktion | Wie `catmd`, aber ohne Pager |
 
@@ -119,6 +121,45 @@ also nicht escaped werden.
 - `dir/` oder `.` – Durchsucht nur dieses Verzeichnis
 - `:N` – maximale Suchtiefe ab Suchroot
 - Sortierung: txt > md > ausführbar > Bild > Video > bekannt (neueste zuerst), Rest alphabetisch
+
+### PowerShell (`Microsoft.PowerShell_profile.ps1`)
+
+Das aktive Profil (`$PROFILE`) ist ein Hardlink auf diese Datei – Edits wirken nach `reload`.
+`Microsoft.PowerShell_profile.ps1.txt` ist die reduzierte Variante (nur Parity-Set, keine Personal Helpers).
+
+Parity-Befehle (wie zsh):
+
+| Befehl | Typ | Beschreibung |
+|--------|-----|--------------|
+| `f` / `ff` | Funktion | Dateisuche, gleiche Syntax + Sortierung wie zsh (`ff` mit versteckten) |
+| `t` | Funktion | `tree`-Ansicht, gleiche Prune-Liste wie `f/ff` |
+| `ll` | Funktion | Verzeichnisinhalt mit Größe + Datum, farbig nach Typ |
+| `l` | Funktion | Kompakte Verzeichnisliste |
+| `i` | Funktion | Metadaten zu Datei/Dir |
+| `catm` / `catmd` | Funktion | Markdown/JSON/YAML farbig, ohne/mit Pager |
+| `..` / `...` / `....` | Funktion | 1 / 2 / 3 Ebenen hoch |
+| `cl` | Alias | Bildschirm leeren (`Clear-Host`) |
+| `cc` | Alias | Claude-CLI (nur wenn installiert) |
+| `py` | Alias | Python (nur wenn installiert) |
+| `reload` | Alias | Profil neu laden |
+| `gst` | Funktion | `git status` |
+
+Personal Helpers (nur Vollvariante):
+
+| Befehl | Typ | Beschreibung |
+|--------|-----|--------------|
+| `tten` / `ttde` | Funktion | tmux-Session per Skript (`$HOME\bin\tten.ps1` / `ttde.ps1`) |
+| `oc` | Funktion | `opencode` starten |
+| `tailnet` | Funktion | Tailscale-Monitor-Skript |
+| `hardfetch` | Funktion | Systeminfo (`hardfetch.exe`) |
+| `ept` | Funktion | Datei aufs Handy exportieren |
+| `ops` | Funktion | Ollama-PS-Helfer |
+| `ssdm` | Funktion | SATA-Temperaturen per SSH auf unraid |
+| `wt` | Funktion | Was läuft gerade (Prozessübersicht) |
+| `tn [name]` | Funktion | tmux-Session erstellen/beitreten (Default: `main`) |
+| `ta [name]` | Funktion | tmux-Session anhängen (Default: `main`) |
+| `tl [name]` | Funktion | tmux-Sessions auflisten (Default: `main`) |
+| `tk [name]` | Funktion | tmux-Server beenden (Default: `main`) |
 
 ---
 
