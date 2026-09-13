@@ -21,7 +21,7 @@ th { border-bottom-color: #ddd; }
 </style>
 </head>
 <body>
-<div class="date">Protokoll zuletzt aktualisiert: 06.09.2026</div>
+<div class="date">Protokoll zuletzt aktualisiert: 13.09.2026</div>
 <h1>dotfiles (zsh + pwsh) – Protokoll &amp; Fortschritt</h1>
 
 <h2>Projektziel</h2>
@@ -63,6 +63,8 @@ th { border-bottom-color: #ddd; }
 <li class="ok"><code>f</code>/<code>ff</code>: Streaming, <code>:N</code>-Tiefenlimit, kurze Hilfe via <code>f</code> ohne Argument / <code>f help</code> / <code>f ?</code>.</li>
 <li class="ok">Performance: 650 Einträge ~120&nbsp;ms, 10.000 Einträge ~1,3&nbsp;s (vorher ~850&nbsp;ms bzw. ~5,5&nbsp;s).</li>
 <li class="warn">Nicht committet: alle oben genannten Änderungen in <code>projects/zsh</code> sind in der Arbeitskopie, Commit/Erstellung ausstehend.</li>
+<li class="ok">tmux-Einheit (13.09): ein kanonischer Socket <code>main</code> — <code>tn</code> erstellt immer auf <code>-L main</code> (vorher legte <code>tn &lt;name&gt;</code> einen eigenen Socket an, unsichtbar für <code>ta</code>/<code>tl</code>); <code>tl</code> ohne Argument scannt <code>main</code>/<code>default</code>/<code>shared</code>/<code>dev</code> und nennt pro Session den Socket (<code>[main] name …</code>). <code>.txt</code>-Variante bleibt bewusst ohne tmux-Helper (nur <code>.ps1</code>).</li>
+<li class="ok">Live-Sync via Hardlink: <code>$PROFILE</code> und Repo-Datei sind derselbe Inode — Repo-Edits greifen nach <code>reload</code> im Alltag.</li>
 </ul>
 
 <h2>Offen</h2>

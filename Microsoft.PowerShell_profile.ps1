@@ -53,12 +53,13 @@ function tn {
         tmux -L main new-session -s $Name
     }
     else {
-        tmux -L $Name has-session -t $Name 2>$null
+        # Einheitliche Konvention: ALLES auf Socket 'main'. $Name ist nur der Session-Name.
+        tmux -L main has-session -t $Name 2>$null
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "Session '$Name' existiert bereits."
+            Write-Host "Session '$Name' existiert bereits auf Socket 'main'."
             return
         }
-        tmux -L $Name new-session -s $Name
+        tmux -L main new-session -s $Name
     }
 }
 
@@ -95,10 +96,25 @@ function ta {
 function tl {
     param(
         [Parameter(Position = 0)]
-        [string]$Name = 'main'
+        [string]$Name
     )
 
-    tmux -L $Name ls
+    # Ohne Argument: alle bekannten Sockets prüfen, pro Session den Socket nennen.
+    # Mit Argument: nur diesen Socket zeigen.
+    $sockets = if ($PSBoundParameters.ContainsKey('Name')) { @($Name) } else { @('main', 'default', 'shared', 'dev') }
+    $found = $false
+    foreach ($sock in $sockets) {
+        $raw = tmux -L $sock ls -F '#{session_name}|#{session_windows}|#{session_created}|#{session_attached}' 2>$null
+        if (-not $raw) { continue }
+        $found = $true
+        foreach ($line in @($raw)) {
+            $parts = $line -split '\|'
+            $created = [DateTimeOffset]::FromUnixTimeSeconds([long]$parts[2]).LocalDateTime.ToString('HH:mm dd.MM')
+            $att = if ($parts[3] -eq '1') { 'aktiv' } else { 'detached' }
+            Write-Host ("[{0}] {1}  ({2} Fenster, erstellt {3}, {4})" -f $sock, $parts[0], $parts[1], $created, $att)
+        }
+    }
+    if (-not $found) { Write-Host 'Keine tmux-Sessions gefunden.' }
 }
 
 function tk {
@@ -656,6 +672,80 @@ function Invoke-CatMdImpl {
 
 function catm  { Invoke-CatMdImpl -Paginate $false @args }
 function catmd { Invoke-CatMdImpl -Paginate $true  @args }
+
+# ---------------------------------------------------------------------------
+# cath — progress.html viewer (ausnahmslos für progress.html-Struktur optimiert:
+# template.html mit h1/h2/h3, li.ok/todo/warn, code, table). Gibt nur
+# formatierten Text aus (Dump, kein Paging, pipe-fähig). Ohne Argument wird
+# './progress.html' gelesen, sonst der übergebene Pfad.
+# NOTE: CSS ::before-Symbole (✓/→/⚠) stehen nicht im Source -> aus Klasse injiziert.
+# Farben via Write-Colored (ANSI, pipe-safe wie mdcat --ansi): Datum grau,
+# h1 weiß, h2 cyan, h3 hellgrau, ✓ grün, → gelb, ⚠ rot, • grau, `code` petrol.
+# ---------------------------------------------------------------------------
+
+function cath {
+    $FilePath = if ($args.Count -eq 0) { './progress.html' } else { $args[0] }
+    if (-not (Test-Path -LiteralPath $FilePath)) { Write-Host "cath: '$FilePath' not found"; return }
+    $t = Get-Content -LiteralPath $FilePath -Raw -Encoding utf8
+    $t = [regex]::Replace($t, '(?si)<(script|style).*?</\1>', '')
+    $m = [regex]::Match($t, '(?si)<body[^>]*>(.*)</body>')
+    if ($m.Success) { $t = $m.Groups[1].Value }
+    $t = [regex]::Replace($t, '(?si)<code[^>]*>(.*?)</code>', { param($mm) '`' + $mm.Groups[1].Value + '`' })
+    $t = [regex]::Replace($t, '(?i)</?(thead|tbody|table)[^>]*>', "`n")
+    $t = [regex]::Replace($t, '(?i)</tr\s*>', "`n")
+    $t = [regex]::Replace($t, '(?i)<tr[^>]*>', '')
+    $t = [regex]::Replace($t, '(?i)</(th|td)\s*>', ' | ')
+    $t = [regex]::Replace($t, '(?i)<(th|td)[^>]*>', '')
+    $t = [regex]::Replace($t, '(?i)<div[^>]*class="date"[^>]*>', "`n")
+    $t = [regex]::Replace($t, '(?i)<h1[^>]*>', "`n`n# ")
+    $t = [regex]::Replace($t, '(?i)<h2[^>]*>', "`n`n## ")
+    $t = [regex]::Replace($t, '(?i)<h3[^>]*>', "`n`n### ")
+    $t = [regex]::Replace($t, '(?i)</(h1|h2|h3|div|p|ul|ol|table)[^>]*>', "`n")
+    $t = [regex]::Replace($t, '(?i)<br\s*/?>', "`n")
+    $t = [regex]::Replace($t, '(?i)<p[^>]*>', "`n")
+    $t = [regex]::Replace($t, '(?i)<li[^>]*class="ok"[^>]*>', "`n  ✓ ")
+    $t = [regex]::Replace($t, '(?i)<li[^>]*class="todo"[^>]*>', "`n  → ")
+    $t = [regex]::Replace($t, '(?i)<li[^>]*class="warn"[^>]*>', "`n  ⚠ ")
+    $t = [regex]::Replace($t, '(?i)<li[^>]*>', "`n  • ")
+    $t = [regex]::Replace($t, '(?i)</li\s*>', '')
+    $t = [regex]::Replace($t, '(?i)</?ul[^>]*>', "`n")
+    $t = [regex]::Replace($t, '<[^>]+>', '')
+    $t = [System.Net.WebUtility]::HtmlDecode($t)
+    $lines = $t -split "`n" | ForEach-Object { $_.TrimEnd() }
+    $out = @()
+    $blank = 0
+    foreach ($ln in $lines) {
+        $trimmed = $ln.Trim()
+        if ($trimmed -match '\|') {
+            $trimmed = $trimmed -replace '\s*\|\s*$', ''
+            $trimmed = $trimmed -replace '\s*\|\s*', ' | '
+        }
+        if ($trimmed -eq '') { $blank++; if ($blank -le 1 -and $out.Count -gt 0) { $out += '' } ; continue }
+        $blank = 0
+        $out += $trimmed
+    }
+    while ($out.Count -gt 0 -and $out[0] -eq '') { if ($out.Count -eq 1) { $out = @() } else { $out = $out[1..($out.Count-1)] } }
+    while ($out.Count -gt 0 -and $out[-1] -eq '') { if ($out.Count -eq 1) { $out = @() } else { $out = $out[0..($out.Count-2)] } }
+    # CLI-Formatierung: ANSI via Write-Colored (pipe-safe wie mdcat --ansi).
+    # Fett statt Größe: ANSI kennt keine Schriftgröße pro Zeile
+    # (Terminal-Grid = eine Größe; Zoom wirkt global). h1 daher fett.
+    $e = [char]27
+    # Status-Symbole stehen nach Trim() am Zeilenanfang ohne Einzug.
+    $fmt = @()
+    foreach ($ln in $out) {
+        if ($ln -eq '') { $fmt += ''; continue }
+        if ($ln -match '^### ') { $fmt += Write-Colored $ln '249'; continue }
+        if ($ln -match '^## ') { $fmt += Write-Colored $ln '75'; continue }
+        if ($ln -match '^# ') { $fmt += "$e[1;38;5;15m$ln$e[0m"; continue }
+        if ($ln -match '^Protokoll zuletzt') { $fmt += Write-Colored $ln '242'; continue }
+        if ($ln -match '^✓ ') { $fmt += (Write-Colored '✓ ' '114') + [regex]::Replace($ln.Substring(2), '`[^`]+`', { param($mm) Write-Colored $mm.Value '81' }); continue }
+        if ($ln -match '^→ ') { $fmt += (Write-Colored '→ ' '214') + [regex]::Replace($ln.Substring(2), '`[^`]+`', { param($mm) Write-Colored $mm.Value '81' }); continue }
+        if ($ln -match '^⚠ ') { $fmt += (Write-Colored '⚠ ' '203') + [regex]::Replace($ln.Substring(2), '`[^`]+`', { param($mm) Write-Colored $mm.Value '81' }); continue }
+        if ($ln -match '^• ') { $fmt += (Write-Colored '• ' '242') + [regex]::Replace($ln.Substring(2), '`[^`]+`', { param($mm) Write-Colored $mm.Value '81' }); continue }
+        $fmt += [regex]::Replace($ln, '`[^`]+`', { param($mm) Write-Colored $mm.Value '81' })
+    }
+    $fmt
+}
 
 # ---------------------------------------------------------------------------
 # Aliases

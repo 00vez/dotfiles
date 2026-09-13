@@ -156,9 +156,9 @@ Personal Helpers (nur Vollvariante):
 | `ops` | Funktion | Ollama-PS-Helfer |
 | `ssdm` | Funktion | SATA-Temperaturen per SSH auf unraid |
 | `wt` | Funktion | Was läuft gerade (Prozessübersicht) |
-| `tn [name]` | Funktion | Neue tmux-Session (ohne Name: erste freie Nummer auf `main`) |
+| `tn [name]` | Funktion | Neue tmux-Session auf Socket `main` (ohne Name: erste freie Nummer) |
 | `ta [socket]` | Funktion | Sessions mit Letztverbindung auflisten, Auswahl-Dialog, anhängen |
-| `tl [name]` | Funktion | tmux-Sessions auflisten (Default: `main`) |
+| `tl [socket]` | Funktion | Sessions über `main`/`default`/`shared`/`dev` scannen (mit Arg nur dieser Socket), pro Session Socket nennen: `[main] name …` |
 | `tk [name]` | Funktion | tmux-Server beenden (Default: `main`) |
 
 ---
