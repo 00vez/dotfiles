@@ -1,4 +1,4 @@
-#Requires -Version 7.2
+﻿#Requires -Version 7.2
 # PowerShell profile — PowerShell 7.2+ in Windows Terminal.
 # Two parts: (1) personal helper functions, (2) zsh-style aliases/commands
 # ported for parity with the dev-bootcamp zsh setup. All ported commands were
@@ -11,7 +11,9 @@
 function tten { & "$HOME\bin\tten.ps1" @args }
 function ttde { & "$HOME\bin\ttde.ps1" @args }
 function gst  { & git status }
+function gic  { & git clone @args}
 function oc { & opencode }
+
 
 function tailnet   { & "C:\Users\v\Documents\lib\llama_monitor\tailnet.ps1" }
 function hardfetch { & "C:\Users\v\Documents\lib\hardfetch\bin\hardfetch.exe" }
@@ -33,7 +35,7 @@ function ssdm { ssh unraid 'ts=$(date "+%H:%M %d.%m"); for d in /dev/sd[a-z]; do
 # -- wt -- whats running
 function wt { python C:\Users\v\Documents\lib\wt-whats-running\wt.py @args }
 
-# -- tmux sessions (socket per name) --
+# -- psmux sessions (kein Socket pro Name; $Name ist der Session-Name) --
 function tn {
     param(
         [Parameter(Position = 0)]
@@ -45,33 +47,33 @@ function tn {
         $Name = '1'
         $i = 1
         while ($true) {
-            tmux -L main has-session -t $Name 2>$null
+            psmux has-session -t $Name 2>$null
             if ($LASTEXITCODE -ne 0) { break }
             $i++
             $Name = "$i"
         }
-        tmux -L main new-session -s $Name
+        psmux new-session -s $Name -- pwsh -NoLogo
     }
     else {
-        # Einheitliche Konvention: ALLES auf Socket 'main'. $Name ist nur der Session-Name.
-        tmux -L main has-session -t $Name 2>$null
+        # psmux hat einen einzigen Server, keine Sockets. $Name ist nur der Session-Name.
+        psmux has-session -t $Name 2>$null
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "Session '$Name' existiert bereits auf Socket 'main'."
+            Write-Host "Session '$Name' existiert bereits."
             return
         }
-        tmux -L main new-session -s $Name
+        psmux new-session -s $Name -- pwsh -NoLogo
     }
 }
 
 function ta {
     param(
         [Parameter(Position = 0)]
-        [string]$Name = 'main'
+        [string]$Name
     )
 
-    $raw = tmux -L $Name ls -F '#{session_name}|#{session_windows}|#{session_created}|#{session_last_attached}|#{session_attached}' 2>$null
+    $raw = psmux ls -F '#{session_name}|#{session_windows}|#{session_created}|#{session_last_attached}|#{session_attached}' 2>$null
     if (-not $raw) {
-        Write-Host "Keine tmux-Sessions auf Socket '$Name'."
+        Write-Host 'Keine psmux-Sessions gefunden.'
         return
     }
     $sessions = @($raw)
@@ -90,7 +92,7 @@ function ta {
         return
     }
     $target = ($sessions[$idx - 1] -split '\|')[0]
-    tmux -L $Name attach -t $target
+    psmux attach -t $target
 }
 
 function tl {
@@ -99,22 +101,21 @@ function tl {
         [string]$Name
     )
 
-    # Ohne Argument: alle bekannten Sockets prüfen, pro Session den Socket nennen.
-    # Mit Argument: nur diesen Socket zeigen.
-    $sockets = if ($PSBoundParameters.ContainsKey('Name')) { @($Name) } else { @('main', 'default', 'shared', 'dev') }
+    # psmux kennt kein -L-Socket-Konzept; Sessions sind global.
+    # Optionaler Parameter wird als Session-Name-Filter benutzt.
+    $raw = psmux ls -F '#{session_name}|#{session_windows}|#{session_created}|#{session_attached}' 2>$null
+    if (-not $raw) { Write-Host 'Keine psmux-Sessions gefunden.'; return }
+
     $found = $false
-    foreach ($sock in $sockets) {
-        $raw = tmux -L $sock ls -F '#{session_name}|#{session_windows}|#{session_created}|#{session_attached}' 2>$null
-        if (-not $raw) { continue }
+    foreach ($line in @($raw)) {
+        $parts = $line -split '\|'
+        if ($PSBoundParameters.ContainsKey('Name') -and $parts[0] -ne $Name) { continue }
         $found = $true
-        foreach ($line in @($raw)) {
-            $parts = $line -split '\|'
-            $created = [DateTimeOffset]::FromUnixTimeSeconds([long]$parts[2]).LocalDateTime.ToString('HH:mm dd.MM')
-            $att = if ($parts[3] -eq '1') { 'aktiv' } else { 'detached' }
-            Write-Host ("[{0}] {1}  ({2} Fenster, erstellt {3}, {4})" -f $sock, $parts[0], $parts[1], $created, $att)
-        }
+        $created = [DateTimeOffset]::FromUnixTimeSeconds([long]$parts[2]).LocalDateTime.ToString('HH:mm dd.MM')
+        $att = if ($parts[3] -eq '1') { 'aktiv' } else { 'detached' }
+        Write-Host ("{0}  ({1} Fenster, erstellt {2}, {3})" -f $parts[0], $parts[1], $created, $att)
     }
-    if (-not $found) { Write-Host 'Keine tmux-Sessions gefunden.' }
+    if (-not $found) { Write-Host "Keine psmux-Session namens '$Name'." }
 }
 
 function tk {
@@ -123,7 +124,12 @@ function tk {
         [string]$Name = 'main'
     )
 
-    tmux -L $Name kill-server
+    # psmux kennt nur einen Server; der Parameter wird fuer Rueckwaertskompatibilitaet
+    # weiterhin akzeptiert (Aufruf 'tk' oder 'tk -Name main' bleiben gueltig).
+    if ($Name -ne 'main' -and $Name -ne 'default') {
+        Write-Warning "psmux hat keinen Socket '$Name'; 'tk' beendet alle Sessions."
+    }
+    psmux kill-server
 }
 
 # ===========================================================================
@@ -239,14 +245,15 @@ function Get-PrunedEntries {
 function Show-FindHelp {
     Write-Host (Write-Colored "f/ff – rekursive Dateisuche. " '36') "ohne Argument oder 'help' zeigt diese Parameterübersicht."
     Write-Host ""
-    Write-Host "Syntax:  f  <pattern> [pattern2 ...] [.ext] [dir/] [*] [*N] [,text] [=text] [-N] [+N] [:N]"
+    Write-Host "Syntax:  f  <pattern> [pattern2 ...] [.ext] [dir/] [*] [*N] [%text] [=text] [-N] [+N] [:N]"
     Write-Host ""
     Write-Host "  <pattern>   Dateiname enthält Muster (mehrere = UND-Verknüpfung)"
     Write-Host "  .ext        nur diese Endung (z.B. .md .txt; mehrere = ODER)"
     Write-Host "  dir/        nur in diesem Verzeichnis suchen (z.B. src/)"
-    Write-Host "  *           nur Verzeichnisse anzeigen (nicht mit ,/= kombinierbar)"
+    Write-Host "  *           nur Verzeichnisse anzeigen (nicht mit %/= kombinierbar)"
     Write-Host "  *N          nur erste N Ergebnisse zeigen (z.B. *10)"
-    Write-Host "  ,text       Dateiinhalt muss Text enthalten (mehrere = UND)"
+    Write-Host "  %text       Dateiinhalt muss Text enthalten (mehrere = UND)"
+    Write-Host "  ,text       identisch zu %text, muss in PowerShell quotiert sein: f ',text'"
     Write-Host "  =text       Treffer-Tag wenn Datei Text enthält (nur Anzeige)"
     Write-Host "  -N / +N     N Zeilen Kontext vor/nach Content-Treffer (z.B. -2 +2)"
     Write-Host "  :N          maximale Suchtiefe ab Suchroot (z.B. :2)"
@@ -283,7 +290,7 @@ function Invoke-FindImpl {
         elseif ($arg -match '^\*(\d+)$') {
             $limit = [int]$Matches[1]
         }
-        elseif ($arg -match '^,(.+)$') {
+        elseif ($arg -match '^[%,](.+)$') {
             $reqContent += $Matches[1]
         }
         elseif ($arg -match '^=(.+)$') {
@@ -482,11 +489,11 @@ function t {
     $dirsOnly = $false
     $Dir = '.'
     for ($i = 0; $i -lt $args.Count; $i++) {
-        if ($i -eq 0 -and $args[$i] -eq '*') {
+        if ($args[$i] -eq '*') {
             $dirsOnly = $true
             continue
         }
-        if ($i -eq 0 -and $args[$i] -notmatch '^-') {
+        if ($args[$i] -notmatch '^-') {
             $Dir = $args[$i]
             continue
         }
@@ -539,6 +546,22 @@ function t {
 # i — path info: absolute/relative, type, size, timestamps, ACL owner.
 # NOTE: Windows/NTFS has no direct equivalent of Unix "ctime" (metadata-changed
 # timestamp) exposed via standard APIs — that field is omitted, not faked.
+#
+# Struktur-ID (Verzeichnis): MD5 über RelPfad|Länge|mtime-ticks aller Einträge.
+# Kein Inhalt wird gelesen. Erkennt Struktur- und Metadatenänderungen.
+#
+# Fingerprint (Datei): SHA256 über die Dateigröße als uint64 little-endian,
+# danach bei bis einschließlich 192 KiB der vollständige Inhalt, sonst genau
+# drei Blöcke à 64 KiB bei Offset 0, floor((Größe-65536)/2) und Größe-65536.
+# Pfad, Name, Endung und Zeitstempel sind nicht Teil des Hash-Eingangs.
+# Angezeigt werden die ersten 15 Hex-Zeichen (60 Bit) des vollen SHA256.
+#
+# GRENZE: Gleicher Fingerprint heißt gleiche Größe und gleiche Stichproben, nicht
+# garantiert identischen vollständigen Inhalt. Änderungen außerhalb der drei
+# Stichproben können unentdeckt bleiben. Der Fingerprint ist eine Duplikat- und
+# Änderungserkennung, keine Integritätsprüfung gegenüber Dritten.
+# Gleiche Structure-ID heißt gleiche Pfad-/Größen-/Zeitstempelstruktur, nicht
+# gleichen Inhalt.
 # ---------------------------------------------------------------------------
 
 function i {
@@ -567,6 +590,71 @@ function i {
 
     $owner = (Get-Acl -LiteralPath $abs).Owner
 
+    # Structure-ID (Verzeichnis) bzw. Fingerprint (Datei) — siehe Kopfkommentar.
+    if ($item.PSIsContainer) {
+        try {
+            # Kein Inhalt gelesen. Struktur-Hash über RelPfad|Länge|mtime-ticks aller
+            # Einträge: erkennt Struktur- und Metadatenänderungen, keine Inhaltsänderung.
+            $seed = (Get-ChildItem -LiteralPath $abs -Recurse -Force -ErrorAction SilentlyContinue |
+                      Sort-Object FullName |
+                      ForEach-Object { "$($_.FullName.Substring($abs.Length))|$($_.Length)|$($_.LastWriteTimeUtc.Ticks)" }) -join "`n"
+            $md5 = [Security.Cryptography.MD5]::Create()
+            try {
+                $sid = ([BitConverter]::ToString($md5.ComputeHash([Text.Encoding]::UTF8.GetBytes($seed))) -replace '-', '').ToLowerInvariant()
+                $sidNote = 'MD5 structure (path|size|mtime), kein Inhalts-Fingerprint'
+            } finally { $md5.Dispose() }
+        } catch {
+            $sid = "unavailable: $($_.Exception.Message)"
+            $sidNote = ''
+        }
+    } else {
+        try {
+            $fileSize = [long]$item.Length
+            # Hash-Eingang: Dateigröße als uint64 little-endian, danach Inhalt bzw.
+            # drei Blöcke à 64 KiB bei Offset 0, floor((size-65536)/2), size-65536.
+            # Pfad, Name, Endung und Zeitstempel gehören nicht in den Eingang.
+            $fp = [Security.Cryptography.IncrementalHash]::CreateHash([Security.Cryptography.HashAlgorithmName]::SHA256)
+            try {
+                $sizeBytes = [byte[]]::new(8)
+                $u = [uint64]$fileSize
+                for ($b = 0; $b -lt 8; $b++) { $sizeBytes[$b] = [byte](($u -shr (8 * $b)) -band 0xFF) }
+                $fp.AppendData($sizeBytes)
+
+                $stream = [IO.File]::Open($abs, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
+                try {
+                    if ($fileSize -le 192KB) {
+                        # <=192 KiB: vollständiger Inhalt, max. 192 KiB im Speicher.
+                        $all = [byte[]]::new([int]$fileSize)
+                        $gotAll = 0
+                        while ($gotAll -lt $all.Length) {
+                            $n = $stream.Read($all, $gotAll, $all.Length - $gotAll)
+                            if ($n -le 0) { throw "unexpected EOF at $gotAll, size $fileSize" }
+                            $gotAll += $n
+                        }
+                        $fp.AppendData($all, 0, $gotAll)
+                    } else {
+                        $block = [byte[]]::new(65536)
+                        $mid = [long][Math]::Floor(($fileSize - 65536) / 2)
+                        foreach ($offset in [long]0, $mid, ($fileSize - 65536)) {
+                            [void]$stream.Seek($offset, [IO.SeekOrigin]::Begin)
+                            $got = 0
+                            while ($got -lt 65536) {
+                                $n = $stream.Read($block, $got, 65536 - $got)
+                                if ($n -le 0) { throw "unexpected EOF at $($offset + $got), size $fileSize" }
+                                $got += $n
+                            }
+                            $fp.AppendData($block, 0, $got)
+                        }
+                    }
+                } finally { $stream.Dispose() }
+
+                $fingerprint = ([BitConverter]::ToString($fp.GetHashAndReset()) -replace '-', '').ToLowerInvariant().Substring(0, 15)
+            } finally { $fp.Dispose() }
+        } catch {
+            $fingerprint = "unavailable: $($_.Exception.Message)"
+        }
+    }
+
     Write-Host (Write-Colored "Name:     " '36') $item.Name
     Write-Host (Write-Colored "Type:     " '36') $type
     if (-not $item.PSIsContainer) { Write-Host (Write-Colored "Ext:      " '36') $item.Extension }
@@ -577,14 +665,22 @@ function i {
     Write-Host (Write-Colored "Modified: " '36') "$($item.LastWriteTime)"
     Write-Host (Write-Colored "Created:  " '36') "$($item.CreationTime)"
     Write-Host (Write-Colored "Accessed: " '36') "$($item.LastAccessTime)"
+    if ($item.PSIsContainer) {
+        if ($sidNote) { Write-Host (Write-Colored "Structure-ID: " '36') "$sid  ($sidNote)" }
+        else { Write-Host (Write-Colored "Structure-ID: " '36') "$sid" }
+    } else {
+        Write-Host (Write-Colored "Fingerprint: " '36') "$fingerprint"
+    }
 }
 
 function Format-Bytes {
     param([long]$Bytes)
+    # InvariantCulture: sonst liefert de-DE "2,0K" statt "2.0K".
+    $inv = [cultureinfo]::InvariantCulture
     if ($Bytes -lt 1KB) { return "${Bytes}B" }
-    if ($Bytes -lt 1MB) { return "{0:N1}K" -f ($Bytes / 1KB) }
-    if ($Bytes -lt 1GB) { return "{0:N1}M" -f ($Bytes / 1MB) }
-    return "{0:N1}G" -f ($Bytes / 1GB)
+    if ($Bytes -lt 1MB) { return ($Bytes / 1KB).ToString('N1', $inv) + 'K' }
+    if ($Bytes -lt 1GB) { return ($Bytes / 1MB).ToString('N1', $inv) + 'M' }
+    return ($Bytes / 1GB).ToString('N1', $inv) + 'G'
 }
 
 # ---------------------------------------------------------------------------
@@ -785,8 +881,18 @@ function l {
 # Host / module setup
 # ===========================================================================
 
-# PowerToys CommandNotFound module
-Import-Module -Name Microsoft.WinGet.CommandNotFound
+# PowerToys CommandNotFound module (optional: fehlt es, laeuft das Profil weiter).
+# Nur "nicht gefunden" wird still geschluckt; ein vorhandenes, aber kaputtes
+# Modul ist ein echter Fehler und wird gemeldet.
+try {
+    Import-Module -Name Microsoft.WinGet.CommandNotFound -ErrorAction Stop
+}
+catch [System.IO.FileNotFoundException] {
+    Write-Verbose "Microsoft.WinGet.CommandNotFound nicht gefunden, uebersprungen."
+}
+catch {
+    Write-Warning "Microsoft.WinGet.CommandNotFound vorhanden, aber nicht ladbar: $($_.Exception.Message)"
+}
 
 # autocd: a bare path changes directory (like zsh `setopt autocd`).
 # Chains any pre-existing CommandNotFound handler (e.g. PowerToys suggestions).
@@ -806,3 +912,29 @@ if (-not $Script:AutocdRegistered) {
     }
     $Script:AutocdRegistered = $true
 }
+# >>> curfew (Nachtmodus-Steuerung)
+function curfew {
+    & 'C:\Users\v\curfew.ps1' @args
+}
+# <<< curfew
+
+# -- nikl -- beendet Gaming-/Socialprozesse, meldet was lief und was nicht
+function nikl {
+    $targets = @('cs2.exe', 'discord.exe', 'brave.exe', 'steam.exe', 'steamhelper.exe')
+    foreach ($t in $targets) {
+        $base = $t -replace '\.exe$', ''
+        $procs = @(Get-Process -Name $base -ErrorAction SilentlyContinue)
+        if ($procs.Count -eq 0) {
+            Write-Host ("{0,-16} nicht am Laufen" -f $t)
+            continue
+        }
+        $ok = $true
+        $err = $null
+        foreach ($p in $procs) {
+            try { Stop-Process -Id $p.Id -Force } catch { $ok = $false; $err = $_.Exception.Message }
+        }
+        $state = if ($ok) { 'OK - beendet' } else { "FEHLER - nicht beendet ($err)" }
+        Write-Host ("{0,-16} {1}  ({2} Prozess(e))" -f $t, $state, $procs.Count)
+    }
+}
+# <<< nikl

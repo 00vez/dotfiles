@@ -73,20 +73,31 @@ plugins=(git)
 # extendedglob zum Zeitpunkt des jeweiligen Globs aktiv ist.
 setopt NULL_GLOB
 
-source $ZSH/oh-my-zsh.sh
+if [[ -f $ZSH/oh-my-zsh.sh ]]; then
+  source $ZSH/oh-my-zsh.sh
+else
+  _warn_tool oh-my-zsh
+fi
 
 unsetopt NULL_GLOB
+
+# typesetsilent: ohne diese Option gibt zsh bei `local name` den aktuellen Wert
+# auf stdout aus, wenn die Variable schon belegt ist. _ff_impl deklariert mtime
+# zweimal (Walker + Ranking-Block) und fp ein zweites Mal im Content-Filter —
+# dadurch schrieb jeder `f`-Aufruf eine Fremdzeile "mtime=<wert>" in die Ausgabe.
+setopt typesetsilent
 
 local _hss_loaded=0
 for _p in \
   "$HOMEBREW_PREFIX/share/zsh-history-substring-search/zsh-history-substring-search.zsh" \
   /usr/share/zsh-history-substring-search/zsh-history-substring-search.zsh \
   /usr/local/share/zsh-history-substring-search/zsh-history-substring-search.zsh \
-  "$ZSH/plugins/zsh-history-substring-search/zsh-history-substring-search.plugin.zsh" ; do
+  "$ZSH/plugins/zsh-history-substring-search/zsh-history-substring-search.plugin.zsh" \
+  "$ZSH/custom/plugins/zsh-history-substring-search/zsh-history-substring-search.zsh" ; do
   [[ -f "$_p" ]] && { source "$_p"; _hss_loaded=1; break; }
 done
 unset _p
-(( _hss_loaded )) || _warn_tool zsh-history-substring-search
+(( _hss_loaded )) || _warn_tool zsh-history-substring-search "brew install zsh-history-substring-search" "git clone --depth 1 https://github.com/zsh-users/zsh-history-substring-search.git ~/.oh-my-zsh/custom/plugins/zsh-history-substring-search"
 bindkey '^[[A' history-substring-search-up
 bindkey '^[[B' history-substring-search-down
 
@@ -145,14 +156,15 @@ unalias f ff ll t 2>/dev/null
 _ff_help() {
   print -P "%F{cyan}f/ff – rekursive Dateisuche. %fOhne Argument oder 'help' zeigt diese Parameterübersicht."
   print ""
-  print "Syntax:  f  <pattern> [pattern2 ...] [.ext] [dir/] [*] [*N] [,text] [=text] [-N] [+N] [:N]"
+  print "Syntax:  f  <pattern> [pattern2 ...] [.ext] [dir/] [*] [*N] [%text] [=text] [-N] [+N] [:N]"
   print ""
   print "  <pattern>   Dateiname enthält Muster (mehrere = UND-Verknüpfung)"
   print "  .ext        nur diese Endung (z.B. .md .txt; mehrere = ODER)"
   print "  dir/        nur in diesem Verzeichnis suchen (z.B. src/)"
-  print "  *           nur Verzeichnisse anzeigen (nicht mit ,/= kombinierbar)"
+  print "  *           nur Verzeichnisse anzeigen (nicht mit %/= kombinierbar)"
   print "  *N          nur erste N Ergebnisse zeigen (z.B. *10)"
-  print "  ,text       Dateiinhalt muss Text enthalten (mehrere = UND)"
+  print "  %text       Dateiinhalt muss Text enthalten (mehrere = UND)"
+  print "  ,text       identisch zu %text (fuer zsh; in PowerShell quoten: f ',text')"
   print "  =text       Treffer-Tag wenn Datei Text enthält (nur Anzeige)"
   print "  -N / +N     N Zeilen Kontext vor/nach Content-Treffer (z.B. -2 +2)"
   print "  :N          maximale Suchtiefe ab Suchroot (z.B. :2)"
@@ -177,8 +189,8 @@ _ff_impl() {
       limit="${arg#\*}"
     elif [[ "$arg" == :<-> ]]; then
       maxdepth="${arg#:}"
-    elif [[ "$arg" == ","?* ]]; then
-      req_content+=("${arg#,}")
+    elif [[ "$arg" == [%,]?* ]]; then
+      req_content+=("${arg#[%,]}")
     elif [[ "$arg" == "="?* ]]; then
       opt_content+=("${arg#=}")
     elif [[ "$arg" == -[0-9]* ]]; then
@@ -480,8 +492,19 @@ t() {
 alias f='noglob f'
 alias ff='noglob ff'
 alias ll='noglob ll'
+unalias l 2>/dev/null
+l() { ll "$@" }
+alias l='noglob l'
 alias t='noglob t'
 
+_human() {
+  awk -v s="${1:-0}" 'BEGIN{
+    if (s<1024) printf "%dB", s
+    else if (s<1048576) printf "%.1fK", s/1024
+    else if (s<1073741824) printf "%.1fM", s/1048576
+    else printf "%.1fG", s/1073741824
+  }'
+}
 i() {
   local target="${1:-.}"
   if [[ ! -e "$target" ]]; then
@@ -509,15 +532,17 @@ i() {
     type="symlink -> $(readlink "$target")"
   elif [[ -d "$target" ]]; then
     type="directory"
-    size=$(du -sh "$target" 2>/dev/null | awk '{print $1}')
+    # du liefert auf manchen Dateisystemen (z.B. drvfs/WSL, Netzwerke) 0;
+    # dann auf die zstat-Bytes zurueckfallen.
+    local dsize
+    dsize=$(du -sh "$target" 2>/dev/null | awk '{print $1}')
+    size="${dsize:-0}"
+    if [[ -z "$dsize" || "$dsize" == 0 ]]; then
+      size="$(_human "${_z[size]}")"
+    fi
   else
     type="file"
-    size=$(awk -v s="$size" 'BEGIN{
-      if (s<1024) printf "%dB", s
-      else if (s<1048576) printf "%.1fK", s/1024
-      else if (s<1073741824) printf "%.1fM", s/1048576
-      else printf "%.1fG", s/1073741824
-    }')
+    size=$(_human "$size")
   fi
 
   print -P "%F{cyan}Path:%f      $abs"
@@ -543,7 +568,9 @@ _history_commands() {
   done
   compadd -a cmds
 }
-compdef '_alternative "history:command:_history_commands" "directories:directory:_path_files -/" "files:file:_path_files -f"' -command-
+if (( $+functions[compdef] )); then
+  compdef '_alternative "history:command:_history_commands" "directories:directory:_path_files -/" "files:file:_path_files -f"' -command-
+fi
 
 # Tab: past 10 chars, only a double-tap (two Tabs within 0.5s) triggers completion
 zmodload zsh/datetime
