@@ -16,7 +16,7 @@ function oc { & opencode }
 
 
 function tailnet   { & "C:\Users\v\Documents\lib\llama_monitor\tailnet.ps1" }
-function hardfetch { & "C:\Users\v\Documents\lib\hardfetch\bin\hardfetch.exe" }
+function hardfetch { & "C:\Users\v\Documents\lib\hardfetch\bin\hardfetch.exe" @args}
 function ept { python C:\Users\v\Documents\lib\scripts\export_to_phone.py @args }
 
 # cd ohne Argument -> nach ~/Documents
@@ -179,8 +179,9 @@ function Write-Colored {
 $Script:PruneNames = @(
     '.git', 'node_modules', '__pycache__', '.venv', 'venv', '.pytest_cache', '.mypy_cache',
     '.tox', 'target', '.next', '.nuxt', '.cache', '.terraform', 'dist', 'build', 'coverage',
-    'vendor', 'Pods', '.gradle', '.m2', '.build', '.eggs', '.angular', '.turbo',
+    'vendor', '.gradle', '.m2', '.build', '.eggs', '.angular', '.turbo',
     '.parcel-cache', 'CMakeFiles', 'site-packages'
+
 )
 $Script:PruneNamePatterns = @('*.egg-info', 'cmake-build-*')
 $Script:PrunePathPatterns = @('*\ggml\src', '*/ggml/src')
