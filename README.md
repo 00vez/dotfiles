@@ -9,25 +9,55 @@ alles als Kurzbefehle, die auf allen Plattformen identisch laufen.
 
 ## Installation
 
+Ablauf: **1.** Pakete (je nach OS) → **2.** Oh My Zsh + Repo (alle) → **3.** Plugin (nicht macOS) → **4.** Neustart.
+
+### 1. Pakete
+
+#### macOS
+
 ```bash
-# 1. Oh My Zsh + Repo
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
+brew install mdcat jq pygments tree fd fzf ripgrep zsh-autosuggestions zsh-history-substring-search
+```
+
+#### Debian / Ubuntu / WSL2
+
+```bash
+sudo apt install zsh git curl tree jq python3-pygments fd-find fzf ripgrep
+```
+
+Ohne sudo-Rechte: `su -` und die Befehle als root ausführen.
+
+#### Termux
+
+```bash
+pkg install zsh git curl tree jq python fd ripgrep fzf
+chsh -s zsh
+```
+
+### 2. Oh My Zsh + Repo (alle Plattformen)
+
+```bash
+RUNZSH=no KEEP_ZSHRC=yes sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
 git clone https://github.com/00vez/dotfiles.git ~/dotfiles
-ln -sf ~/dotfiles/.zshrc ~/.zshrc
+cd ~/dotfiles
+ln -sfn "$PWD/.zshrc" ~/.zshrc
+```
 
-# 2. Tools – wähle dein OS:
-# macOS:
-brew install mdcat jq pygments tree fd fzf zsh-autosuggestions zsh-history-substring-search
-# Debian / Ubuntu / WSL2:
-sudo apt install tree jq python3-pygments fd-find fzf ripgrep
-# Termux:
-pkg install tree jq python fd ripgrep fzf
+Der Symlink braucht einen **absoluten** Pfad. Ein relatives Ziel wie `ln -sf .zshrc ~/.zshrc` erzeugt eine Schleife ("Too many levels of symbolic links").
+Existiert `~/.oh-my-zsh` schon, bricht der Installer ab. Das ist unproblematisch, einfach überspringen.
 
-# 3. History-Substring-Search (falls nicht als Paket da)
+### 3. History-Substring-Search (Linux, WSL2, Termux)
+
+Auf macOS entfällt der Schritt, `brew` hat das Plugin bereits installiert.
+
+```bash
 git clone --depth 1 https://github.com/zsh-users/zsh-history-substring-search.git \
   ~/.oh-my-zsh/custom/plugins/zsh-history-substring-search
+```
 
-# 4. Neu starten
+### 4. Neu starten
+
+```bash
 exec zsh -l
 ```
 
