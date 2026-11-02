@@ -1,27 +1,32 @@
-unsetopt EQUALS
+# --------------------------------------------------------------------
+#  .zshrc — portabel: macOS · Linux · WSL2 · Termux
+# --------------------------------------------------------------------
 
-# Portable PATH: brew fuer Apple Silicon, Intel und Linux/Linuxbrew + lokale Binaries.
+# Portable PATH: brew für Apple Silicon, Intel und Linux/Linuxbrew + lokale Binaries.
 export PATH="$HOME/.local/bin:$HOME/Documents/.verapdf:/usr/local/bin:$PATH"
 [[ -d /opt/homebrew/bin ]] && export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:$PATH"
 [[ -d /home/linuxbrew/.linuxbrew/bin ]] && export PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:$PATH"
 
-# Betriebssystem erkennen: eine .zshrc fuer macOS (Intel + Apple Silicon), Linux und WSL2.
-case "$(uname -r)" in
-  *microsoft*|*Microsoft*) OS="wsl" ;;
-  *)
-    case "$OSTYPE" in
-      darwin*) OS="macos" ;;
-      linux*)  OS="linux" ;;
-      *)       OS="unknown" ;;
-    esac
-    ;;
-esac
+# Betriebssystem erkennen: eine .zshrc für macOS (Intel + Apple Silicon), Linux, WSL2 und Termux.
+if [[ -n "$TERMUX_VERSION" || -d /data/data/com.termux ]]; then
+  OS="termux"
+elif [[ "$(uname -r)" == *[Mm]icrosoft* ]]; then
+  OS="wsl"
+elif [[ "$OSTYPE" == darwin* ]]; then
+  OS="macos"
+elif [[ "$OSTYPE" == linux* ]]; then
+  OS="linux"
+else
+  OS="unknown"
+fi
 
-# Plattformneutrale Builtins: zsh/stat (statt BSD/GNU-stat) und zsh/datetime (strftime).
+# Plattformneutrale Builtins: zsh/stat (statt BSD/GNU-stat), zsh/datetime (strftime),
+# zsh/terminfo (Pfeiltasten unter WSL2/tmux).
 zmodload zsh/stat 2>/dev/null
 zmodload zsh/datetime 2>/dev/null
+zmodload zsh/terminfo 2>/dev/null
 
-# Erforderliches Tool pruefen; bei Fehlen OS-spezifischen Installationsweg ausgeben.
+# Erforderliches Tool prüfen; bei Fehlen OS-spezifischen Installationsweg ausgeben.
 _require() {
   local tool="$1"
   local macos_cmd="${2:-brew install $tool}"
@@ -29,77 +34,84 @@ _require() {
   local wsl_cmd="${4:-$linux_cmd}"
   command -v "$tool" >/dev/null 2>&1 && return 0
   local cmd="$macos_cmd"
-  [[ "$OS" == "linux" ]] && cmd="$linux_cmd"
-  [[ "$OS" == "wsl"   ]] && cmd="$wsl_cmd"
+  [[ "$OS" == "linux"  ]] && cmd="$linux_cmd"
+  [[ "$OS" == "wsl"    ]] && cmd="$wsl_cmd"
+  [[ "$OS" == "termux" ]] && cmd="pkg install $tool"
   print -P "%F{1}Fehler:%f '$tool' ist nicht installiert." >&2
   print -P "  Installation ($OS): %F{3}$cmd%f" >&2
   return 1
 }
 
-# Wie _require, aber nicht fatal (Hinweis statt Abbruch) – fuer optionale Features.
+# Wie _require, aber nicht fatal (Hinweis statt Abbruch) – für optionale Features.
 _warn_tool() {
   local tool="$1"
   local macos_cmd="${2:-brew install $tool}"
   local linux_cmd="${3:-sudo apt install $tool}"
   local wsl_cmd="${4:-$linux_cmd}"
   local cmd="$macos_cmd"
-  [[ "$OS" == "linux" ]] && cmd="$linux_cmd"
-  [[ "$OS" == "wsl"   ]] && cmd="$wsl_cmd"
+  [[ "$OS" == "linux"  ]] && cmd="$linux_cmd"
+  [[ "$OS" == "wsl"    ]] && cmd="$wsl_cmd"
+  [[ "$OS" == "termux" ]] && cmd="pkg install $tool"
   print -P "%F{3}Hinweis:%f '$tool' fehlt. Installation ($OS): %F{3}$cmd%f" >&2
 }
 
+# Erste existierende Datei aus Argumenten sourcen; sonst Warnung.
+_source_first() {
+  local label="$1"; shift
+  local p
+  for p in "$@"; do
+    [[ -f "$p" ]] && { source "$p"; return 0; }
+  done
+  _warn_tool "$label"
+  return 1
+}
+
+# HOMEBREW_PREFIX kann auf WSL/Linux/Termux leer sein ? Pfad-Fallback verhindert "/share/…".
+_hbp="${HOMEBREW_PREFIX:-/nonexistent}"
+
 # zsh-autosuggestions: egal ob via brew (macOS/Linux) oder apt (Debian/Ubuntu/WSL2) installiert.
-local _as_loaded=0
-for _p in \
-  "$HOMEBREW_PREFIX/share/zsh-autosuggestions/zsh-autosuggestions.zsh" \
+_source_first zsh-autosuggestions \
+  "$_hbp/share/zsh-autosuggestions/zsh-autosuggestions.zsh" \
   /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
   /usr/local/share/zsh-autosuggestions/zsh-autosuggestions.zsh \
-  "$ZSH/plugins/zsh-autosuggestions/zsh-autosuggestions.plugin.zsh" ; do
-  [[ -f "$_p" ]] && { source "$_p"; _as_loaded=1; break; }
-done
-unset _p
-(( _as_loaded )) || _warn_tool zsh-autosuggestions
+  "$HOME/.oh-my-zsh/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.plugin.zsh"
 
 export ZSH="$HOME/.oh-my-zsh"
-# Eigene Plugins/Themes hier ablegen, z.B.:
-#   export ZSH_CUSTOM="$HOME/.zsh-custom"
-
 ZSH_THEME="robbyrussell"
-
 plugins=(git)
 
 # Suppress oh-my-zsh glob errors (missing caches/custom dirs).
-# NULL_GLOB statt unsetopt NOMATCH: wirkt unabhängig davon, ob
-# extendedglob zum Zeitpunkt des jeweiligen Globs aktiv ist.
 setopt NULL_GLOB
-
 if [[ -f $ZSH/oh-my-zsh.sh ]]; then
   source $ZSH/oh-my-zsh.sh
 else
   _warn_tool oh-my-zsh
 fi
-
 unsetopt NULL_GLOB
 
-# typesetsilent: ohne diese Option gibt zsh bei `local name` den aktuellen Wert
-# auf stdout aus, wenn die Variable schon belegt ist. _ff_impl deklariert mtime
-# zweimal (Walker + Ranking-Block) und fp ein zweites Mal im Content-Filter —
-# dadurch schrieb jeder `f`-Aufruf eine Fremdzeile "mtime=<wert>" in die Ausgabe.
+# typesetsilent: verhindert "mtime=<wert>"-Fremdzeilen in f-Ausgabe durch doppelte local-Deklarationen.
 setopt typesetsilent
 
-local _hss_loaded=0
-for _p in \
-  "$HOMEBREW_PREFIX/share/zsh-history-substring-search/zsh-history-substring-search.zsh" \
+# zsh-history-substring-search — Plugin-Pfad mehrfach probiert (brew, distro, oh-my-zsh, git clone).
+typeset -g _hss_loaded=0
+_source_first zsh-history-substring-search \
+  "$_hbp/share/zsh-history-substring-search/zsh-history-substring-search.zsh" \
   /usr/share/zsh-history-substring-search/zsh-history-substring-search.zsh \
   /usr/local/share/zsh-history-substring-search/zsh-history-substring-search.zsh \
   "$ZSH/plugins/zsh-history-substring-search/zsh-history-substring-search.plugin.zsh" \
-  "$ZSH/custom/plugins/zsh-history-substring-search/zsh-history-substring-search.zsh" ; do
-  [[ -f "$_p" ]] && { source "$_p"; _hss_loaded=1; break; }
-done
-unset _p
-(( _hss_loaded )) || _warn_tool zsh-history-substring-search "brew install zsh-history-substring-search" "git clone --depth 1 https://github.com/zsh-users/zsh-history-substring-search.git ~/.oh-my-zsh/custom/plugins/zsh-history-substring-search"
-bindkey '^[[A' history-substring-search-up
-bindkey '^[[B' history-substring-search-down
+  "$ZSH/custom/plugins/zsh-history-substring-search/zsh-history-substring-search.zsh" \
+  && _hss_loaded=1
+
+# Pfeiltasten — terminfo deckt WSL2 + tmux Application-Mode ab; Fallback auf ANSI.
+if (( _hss_loaded )); then
+  if [[ -n "${terminfo[kcuu1]:-}" ]]; then
+    bindkey "${terminfo[kcuu1]}" history-substring-search-up
+    bindkey "${terminfo[kcud1]}" history-substring-search-down
+  else
+    bindkey '^[[A' history-substring-search-up
+    bindkey '^[[B' history-substring-search-down
+  fi
+fi
 
 if (( $+commands[code] )); then
   export EDITOR="${EDITOR:-code --wait}"
@@ -120,154 +132,205 @@ fi
 export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 export FZF_DEFAULT_OPTS="--height 40% --layout=reverse --border"
 
+# --- Farben ---------------------------------------------------------
+# Setzt REPLY_COLOR (kein Subshell); Aufrufer liest $REPLY_COLOR.
+typeset -g REPLY_COLOR
 _type_color() {
-  local fp="$1" ext
-  if [[ -d "$fp" ]]; then
-    echo blue
-    return
-  fi
-  ext="${fp:e:l}"
-  case "$ext" in
-    py) echo 214 ;;
-    js|jsx) echo 227 ;;
-    ts|tsx) echo 75 ;;
-    go) echo 80 ;;
-    rs) echo 209 ;;
-    c|cpp|h) echo 111 ;;
-    java) echo 173 ;;
-    rb) echo 203 ;;
-    php) echo 140 ;;
-    sh|zsh) echo 150 ;;
-    md) echo 114 ;;
-    txt) echo 81 ;;
-    json|jsonl) echo 141 ;;
-    yaml|yml) echo 208 ;;
-    xml|html) echo 172 ;;
-    toml) echo 179 ;;
-    csv) echo 37 ;;
-    png|jpg|jpeg|gif|svg|webp|ico|bmp|tiff) echo 213 ;;
-    mp4|mov|avi|mkv|webm|flv|wmv|m4v) echo 207 ;;
-    zip|tar|gz|rar|7z|bz2) echo 203 ;;
-    *) echo white ;;
+  if [[ -d "$1" ]]; then REPLY_COLOR=blue; return; fi
+  case "${1:e:l}" in
+    py)      REPLY_COLOR=214 ;;
+    js|jsx)  REPLY_COLOR=227 ;;
+    ts|tsx)  REPLY_COLOR=75  ;;
+    go)      REPLY_COLOR=80  ;;
+    rs)      REPLY_COLOR=209 ;;
+    c|cpp|h) REPLY_COLOR=111 ;;
+    java)    REPLY_COLOR=173 ;;
+    rb)      REPLY_COLOR=203 ;;
+    php)     REPLY_COLOR=140 ;;
+    sh|zsh)  REPLY_COLOR=150 ;;
+    md)      REPLY_COLOR=114 ;;
+    txt)     REPLY_COLOR=81  ;;
+    json|jsonl) REPLY_COLOR=141 ;;
+    yaml|yml)   REPLY_COLOR=208 ;;
+    xml|html)   REPLY_COLOR=172 ;;
+    toml)       REPLY_COLOR=179 ;;
+    csv)        REPLY_COLOR=37  ;;
+    png|jpg|jpeg|gif|svg|webp|ico|bmp|tiff) REPLY_COLOR=213 ;;
+    mp4|mov|avi|mkv|webm|flv|wmv|m4v)       REPLY_COLOR=207 ;;
+    zip|tar|gz|rar|7z|bz2)                  REPLY_COLOR=203 ;;
+    *) REPLY_COLOR=white ;;
   esac
 }
 
+# --- Tool-Discovery -------------------------------------------------
+_find_rg() {
+  command -v rg >/dev/null 2>&1 && { command -v rg; return 0; }
+  local p
+  for p in "$HOME/.cargo/bin/rg" "$HOME/.local/bin/rg" \
+           /opt/homebrew/bin/rg /usr/local/bin/rg \
+           /home/linuxbrew/.linuxbrew/bin/rg; do
+    [[ -x "$p" ]] && { print -r -- "$p"; return 0; }
+  done
+  return 1
+}
+
+# Portabler Core-Count für parallele Tool-Aufrufe.
+_cores() {
+  nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || print -r -- 4
+}
+
+# Einmaliger --color-Check (GNU grep hat es, BSD grep nicht immer).
+typeset -g _GREP_HAS_COLOR=0
+grep --color=always "" /dev/null >/dev/null 2>&1 && _GREP_HAS_COLOR=1
+
+# --- f / ff ---------------------------------------------------------
 unalias f ff ll t 2>/dev/null
+
 _ff_help() {
-  print -P "%F{cyan}f/ff – rekursive Dateisuche. %fOhne Argument oder 'help' zeigt diese Parameterübersicht."
+  local rg_cmd rg_status
+  if rg_cmd=$(_find_rg); then
+    rg_status="%F{2}?%f $rg_cmd"
+  else
+    rg_status="%F{3}?%f — Fallback auf grep (langsamer)"
+  fi
+  print -P "%F{cyan}f%f   — Datei-/Inhaltssuche (ohne Hidden)"
+  print -P "%F{cyan}ff%f  — wie f, aber inkl. Hidden"
+  print -P "  ripgrep: $rg_status"
   print ""
-  print "Syntax:  f  <pattern> [pattern2 ...] [.ext] [dir/] [*] [*N] [%text] [=text] [-N] [+N] [:N]"
+  print -P "%F{cyan}Syntax:%f f [patterns] [.ext] [dir/] [*] [*N] [,text] [,,text] [:N] [-N] [-v]"
   print ""
   print "  <pattern>   Dateiname enthält Muster (mehrere = UND-Verknüpfung)"
-  print "  .ext        nur diese Endung (z.B. .md .txt; mehrere = ODER)"
-  print "  dir/        nur in diesem Verzeichnis suchen (z.B. src/)"
-  print "  *           nur Verzeichnisse anzeigen (nicht mit %/= kombinierbar)"
-  print "  *N          nur erste N Ergebnisse zeigen (z.B. *10)"
-  print "  %text       Dateiinhalt muss Text enthalten (mehrere = UND)"
-  print "  ,text       identisch zu %text (fuer zsh; in PowerShell quoten: f ',text')"
-  print "  =text       Treffer-Tag wenn Datei Text enthält (nur Anzeige)"
-  print "  -N / +N     N Zeilen Kontext vor/nach Content-Treffer (z.B. -2 +2)"
-  print "  :N          maximale Suchtiefe ab Suchroot (z.B. :2)"
-  print "  ff          wie f, zeigt zusätzlich versteckte Dateien"
+  print "  .ext        nur diese Endung (mehrere = ODER)"
+  print "  dir/        nur in diesem Verzeichnis suchen"
+  print "  *           nur Verzeichnisse anzeigen"
+  print "  *N          max. N Treffer (Default 200 bei Content, sonst alle)"
+  print "  ,text       Inhalt enthält Text (case-insensitive, mehrere = UND)"
+  print "  ,,text      Inhalt enthält Text (case-sensitive)"
+  print "  -N          N Zeilen Kontext um Content-Treffer (grep -C)"
+  print "  :N          maximale Suchtiefe ab Suchroot"
+  print "  -v          zeigt äquivalenten rg/grep-Befehl"
   print ""
-  print "Sortierung: txt > md > ausführbar > Bild > Video > bekannt (neueste zuerst), Rest alphabetisch."
+  print -P "%F{cyan}Beispiele:%f"
+  print "  f .py                  alle .py-Dateien"
+  print "  f test .js             'test' im Namen, nur .js"
+  print "  f ,TODO                Inhalt enthält 'TODO' (insensitive)"
+  print "  f ,,TODO               Inhalt enthält 'TODO' (sensitive)"
+  print "  f ,TODO ,FIXME         Inhalt enthält beide"
+  print "  f .py ,def main        Python-Dateien mit 'def main'"
+  print "  f ,TODO -2             mit 2 Zeilen Kontext"
+  print "  f ,TODO src/ :2        in src/, max Tiefe 2"
+  print "  f ,TODO *0             unbegrenzt"
+  print ""
+  print -P "%F{cyan}Sortierung:%f txt > md > exec > Bild > Video > Code > Rest (neueste zuerst)"
 }
-_ff_impl() {
-  local show_hidden="$1"
-  shift
-  if [[ $# -eq 0 || "$1" == "help" || "$1" == "?" || "$1" == "--help" || "$1" == "-h" ]]; then
-    _ff_help
-    return 0
+
+# Ergebnis-Array (global, damit Filterkette sauber durchläuft)
+typeset -ga _FF_MATCHED
+
+# Filtert eine Datei-Liste gegen ein Muster (case-insensitive oder -sensitive).
+# $1 = Muster, $2 = ci-Flag (1 = insensitive), $3.. = Dateien
+_ff_filter_pattern() {
+  local pattern="$1" ci="$2"; shift 2
+  _FF_MATCHED=()
+  (( $# == 0 )) && return
+  local -a files=("$@")
+  local rg
+  rg=$(_find_rg)
+  local -a extra=()
+  (( ci )) && extra=(-i)
+
+  if [[ -n "$rg" ]]; then
+    # rg kennt kein -0; --null liefert NUL-Separatoren.
+    _FF_MATCHED=("${(@0)$(printf '%s\0' "${files[@]}" \
+      | xargs -0 -n 500 "$rg" -lF --null --no-messages -e "$pattern" "${extra[@]}" -- 2>/dev/null)}")
+  else
+    _FF_MATCHED=("${(@0)$(printf '%s\0' "${files[@]}" \
+      | xargs -0 -P "$(_cores)" -n 200 grep -lF -e "$pattern" "${extra[@]}" -- 2>/dev/null \
+      | tr '\n' '\0')}")
   fi
-  local -a patterns=() extensions=() req_content=() opt_content=()
-  local -A tags_for
-  local arg glob root="." root_set=0 dirs_only=0 before_ctx=0 after_ctx=0 limit=0 maxdepth=0
+}
+
+# Gibt Content-Treffer einer Datei aus (mit Kontext + Highlight).
+# $1 = Datei, $2 = ctx, $3 = ci-Flag, $4.. = Muster
+_ff_print_hits() {
+  local fp="$1" ctx="$2" ci="$3"; shift 3
+  local -a ga=(-n)
+  (( ctx > 0 )) && ga+=(-C "$ctx")
+  (( ci )) && ga+=(-i)
+  local p
+  for p in "$@"; do ga+=(-e "$p"); done
+  (( _GREP_HAS_COLOR )) && ga+=(--color=always)
+
+  local cline num sepchar content marker
+  grep "${ga[@]}" -- "$fp" 2>/dev/null | while IFS= read -r cline; do
+    [[ "$cline" == "--" ]] && { print ""; continue; }
+    num="${cline%%[!0-9]*}"
+    [[ -z "$num" ]] && continue
+    sepchar="${cline[${#num}+1]}"
+    content="${cline[${#num}+2,-1]}"
+    (( ${#content} > 100 )) && content="${content[1,100]}…"
+    [[ "$sepchar" == ":" ]] && marker=">" || marker=" "
+    printf "    %s %5s  %s\033[0m\n" "$marker" "$num" "$content"
+  done
+}
+
+_ff_impl() {
+  local show_hidden="$1"; shift
+  if [[ $# -eq 0 || "$1" == "help" || "$1" == "?" || "$1" == "--help" || "$1" == "-h" ]]; then
+    _ff_help; return 0
+  fi
+
+  local -a patterns=() extensions=() req_ci=() req_cs=()
+  local root="." root_set=0 dirs_only=0
+  local ctx=0 limit=200 limit_set=0 maxdepth=0 verbose=0
+  local arg
+
+  # Flags vorab
+  local -a args=()
   for arg in "$@"; do
-    if [[ "$arg" == "*" ]]; then
-      dirs_only=1
-    elif [[ "$arg" == \*<-> ]]; then
-      limit="${arg#\*}"
-    elif [[ "$arg" == :<-> ]]; then
-      maxdepth="${arg#:}"
-    elif [[ "$arg" == [%,]?* ]]; then
-      req_content+=("${arg#[%,]}")
-    elif [[ "$arg" == "="?* ]]; then
-      opt_content+=("${arg#=}")
-    elif [[ "$arg" == -[0-9]* ]]; then
-      before_ctx="${arg#-}"
-    elif [[ "$arg" == +[0-9]* ]]; then
-      after_ctx="${arg#+}"
-    elif [[ "$arg" == "." ]]; then
-      if (( ${#patterns} > 0 )); then
-        local prev="${patterns[-1]}"
-        if [[ ! -d "$prev" ]]; then
-          echo "f/ff: '$prev' is not a directory"
-          return 1
-        fi
-        if (( root_set )); then
-          echo "f/ff: only one search directory allowed (got '$root' and '$prev')"
-          return 1
-        fi
-        patterns[-1]=()
-        root="$prev"
-        root_set=1
-      else
-        if (( root_set )); then
-          echo "f/ff: only one search directory allowed (got '$root' and '.')"
-          return 1
-        fi
-        root="."
-        root_set=1
-      fi
-    elif [[ "$arg" == */ || "$arg" == ".." ]]; then
-      if [[ ! -d "$arg" ]]; then
-        echo "f/ff: '$arg' is not a directory"
-        return 1
-      fi
+    case "$arg" in
+      -v|--verbose) verbose=1 ;;
+      *) args+=("$arg") ;;
+    esac
+  done
+  set -- "${args[@]}"
+
+  for arg in "$@"; do
+    if   [[ "$arg" == "*" ]];       then dirs_only=1
+    elif [[ "$arg" == \*<-> ]];     then limit="${arg#\*}"; limit_set=1
+    elif [[ "$arg" == :<-> ]];      then maxdepth="${arg#:}"
+    elif [[ "$arg" == ",,"?* ]];    then req_cs+=("${arg#,,}")
+    elif [[ "$arg" == ","?* ]];     then req_ci+=("${arg#,}")
+    elif [[ "$arg" == -<-> ]];      then ctx="${arg#-}"
+    elif [[ -d "$arg" ]]; then
       if (( root_set )); then
-        echo "f/ff: only one search directory allowed (got '$root' and '$arg')"
+        print -u2 "f/ff: nur ein Suchverzeichnis erlaubt"
         return 1
       fi
-      root="$arg"
-      root_set=1
-    elif [[ "$arg" == [^.]*. && "$arg" != *"*"* ]]; then
-      local cand="${arg%.}"
-      if [[ ! -d "$cand" ]]; then
-        echo "f/ff: '$cand' is not a directory"
-        return 1
-      fi
-      if (( root_set )); then
-        echo "f/ff: only one search directory allowed (got '$root' and '$cand')"
-        return 1
-      fi
-      root="$cand"
-      root_set=1
-    elif [[ "$arg" == .* ]]; then
-      if [[ -d "$arg" ]]; then
-        if (( root_set )); then
-          echo "f/ff: only one search directory allowed (got '$root' and '$arg')"
-          return 1
-        fi
-        root="$arg"
-        root_set=1
-      else
-        extensions+=("$arg")
-      fi
-    else
-      patterns+=("$arg")
+      root="$arg"; root_set=1
+    elif [[ "$arg" == .?* ]];       then extensions+=("$arg")
+    else                                 patterns+=("$arg")
     fi
   done
-  if [[ ${#patterns[@]} -eq 0 && ${#extensions[@]} -eq 0 && ${#req_content[@]} -eq 0 && ${#opt_content[@]} -eq 0 && $dirs_only -eq 0 && $maxdepth -eq 0 ]]; then
-    _ff_help
-    return 0
+
+  # -N ohne Content: Warnung nur mit -v
+  if (( ctx > 0 && ${#req_ci[@]} == 0 && ${#req_cs[@]} == 0 && verbose )); then
+    print -u2 -P "%F{3}Hinweis:%f -N ohne ,text wird ignoriert."
   fi
-  if (( dirs_only && (${#req_content[@]} || ${#opt_content[@]}) )); then
-    echo "f/ff: Content-Suche nicht mit '*' kombinierbar"
+  if [[ ${#patterns[@]} -eq 0 && ${#extensions[@]} -eq 0 \
+      && ${#req_ci[@]} -eq 0 && ${#req_cs[@]} -eq 0 \
+      && $dirs_only -eq 0 && $maxdepth -eq 0 && $root_set -eq 0 ]]; then
+    _ff_help; return 0
+  fi
+
+  if (( dirs_only && (${#req_ci[@]} + ${#req_cs[@]}) > 0 )); then
+    print -u2 "f/ff: Content-Suche nicht mit '*' kombinierbar"
     return 1
   fi
 
+  # find-Argumente
   local -a name_clauses=()
-  local p
+  local p glob
   for p in "${patterns[@]}"; do
     [[ "$p" == *"*"* ]] && glob="$p" || glob="*${p}*"
     if [[ "$p" == */* ]]; then
@@ -288,16 +351,12 @@ _ff_impl() {
   fi
 
   local -a prune_dirs=(.git node_modules __pycache__ .venv venv .pytest_cache .mypy_cache .tox target .next .nuxt .cache .terraform '*.egg-info' \
-    dist build coverage vendor Pods .gradle .m2 .build .eggs .angular .turbo .parcel-cache 'cmake-build-*' CMakeFiles site-packages)
+    dist build coverage vendor .gradle .m2 .build .eggs .angular .turbo .parcel-cache 'cmake-build-*' CMakeFiles site-packages)
   local -a prune_paths=('*/ggml/src')
   local -a prune_expr
   local d
-  for d in $prune_dirs; do
-    prune_expr+=(-o -name "$d")
-  done
-  for d in $prune_paths; do
-    prune_expr+=(-o -path "$d")
-  done
+  for d in $prune_dirs;  do prune_expr+=(-o -name "$d"); done
+  for d in $prune_paths; do prune_expr+=(-o -path "$d"); done
 
   local -a hidden_exclude=()
   if (( ! show_hidden )); then
@@ -306,68 +365,59 @@ _ff_impl() {
   fi
 
   local -a type_clause
-  (( dirs_only )) && type_clause=(-type d) || type_clause=(\( -type f -o -type d \))
+  (( dirs_only )) && type_clause=(-type d) || type_clause=(-type f)
 
-  local -a raw paths
-  local -A _z
-  local ep mtime fp
   local -a maxdepth_clause=()
   (( maxdepth > 0 )) && maxdepth_clause=(-maxdepth "$maxdepth")
+
   print -P "%F{cyan}${root:A}%f"
-  paths=(${(0)"$(find "$root" -mindepth 1 "${maxdepth_clause[@]}" \( -type d \( -false "${prune_expr[@]}" \) -prune \) -o "${type_clause[@]}" "${name_clauses[@]}" "${hidden_exclude[@]}" -print0 2>/dev/null)"})
-  for fp in $paths; do
-    zstat -H _z "$fp" 2>/dev/null || continue
-    ep="${_z[mtime]}"
-    mtime=$(strftime '%Y-%m-%d_%H:%M' "$ep")
-    raw+=("${ep}|${mtime}|${fp}")
+
+  # 1) Namen finden
+  local -a found
+  found=(${(0)"$(find "$root" -mindepth 1 "${maxdepth_clause[@]}" \( -type d \( -false "${prune_expr[@]}" \) -prune \) -o "${type_clause[@]}" "${name_clauses[@]}" "${hidden_exclude[@]}" -print0 2>/dev/null)"})
+  (( ${#found} == 0 )) && { print -P "%F{cyan}# 0%f"; return 0; }
+
+  # 2) Content-Filter (vor stat!)
+  local -a matched=("${found[@]}")
+  local q
+  for q in "${req_ci[@]}"; do
+    _ff_filter_pattern "$q" 1 "${matched[@]}"
+    matched=("${_FF_MATCHED[@]}")
+    (( ${#matched} == 0 )) && break
   done
-
-  if (( ${#req_content[@]} || ${#opt_content[@]} )); then
-    local -a filtered=()
-    local rline2 fp ok rc oc
-    local -a tag_list
-    for rline2 in $raw; do
-      fp="${rline2#*|*|}"
-      if [[ ! -f "$fp" ]]; then
-        (( ${#req_content[@]} == 0 )) && filtered+=("$rline2")
-        continue
-      fi
-      ok=1
-      for rc in "${req_content[@]}"; do
-        grep -qi -- "$rc" "$fp" 2>/dev/null || { ok=0; break }
-      done
-      (( ok )) || continue
-      tag_list=()
-      for oc in "${opt_content[@]}"; do
-        grep -qi -- "$oc" "$fp" 2>/dev/null && tag_list+=("$oc")
-      done
-      (( ${#tag_list[@]} )) && tags_for[$fp]="${(j:, :)tag_list}"
-      filtered+=("$rline2")
+  if (( ${#matched} > 0 )); then
+    for q in "${req_cs[@]}"; do
+      _ff_filter_pattern "$q" 0 "${matched[@]}"
+      matched=("${_FF_MATCHED[@]}")
+      (( ${#matched} == 0 )) && break
     done
-    raw=("$filtered[@]")
   fi
+  (( ${#matched} == 0 )) && { print -P "%F{cyan}# 0%f"; return 0; }
 
+  # 3) Stat + Ranking (Basis-Syntax mit Leerzeichen nach jedem ')')
+  local -A _z
   local -a ranked
-  local rline epoch mtime filepath ext rank
-  for rline in $raw; do
-    epoch="${rline%%|*}"
-    rline="${rline#*|}"
-    mtime="${rline%%|*}"
-    filepath="${rline#*|}"
-    if [[ -d "$filepath" ]]; then
+  local fp epoch mtime ext rank
+  for fp in "${matched[@]}"; do
+    _z=()
+    zstat -H _z "$fp" 2>/dev/null || continue
+    epoch="${_z[mtime]}"
+    strftime -s mtime '%Y-%m-%d %H:%M' "$epoch" 2>/dev/null || mtime=""
+
+    if [[ -d "$fp" ]]; then
       rank=6
     else
-      ext="${filepath:e:l}"
+      ext="${fp:e:l}"
       case "$ext" in
         txt) rank=0 ;;
-        md) rank=1 ;;
+        md)  rank=1 ;;
         *)
-          if [[ -x "$filepath" ]]; then
+          if [[ -x "$fp" ]]; then
             rank=2
           else
             case "$ext" in
               png|jpg|jpeg|gif|svg|webp|ico|bmp|tiff) rank=3 ;;
-              mp4|mov|avi|mkv|webm|flv|wmv|m4v) rank=4 ;;
+              mp4|mov|avi|mkv|webm|flv|wmv|m4v)       rank=4 ;;
               py|js|jsx|ts|tsx|go|rs|c|cpp|h|java|rb|php|sh|zsh|json|jsonl|yaml|yml|xml|html|toml|csv|zip|tar|gz|rar|7z|bz2) rank=5 ;;
               *) rank=6 ;;
             esac
@@ -375,65 +425,79 @@ _ff_impl() {
           ;;
       esac
     fi
-    ranked+=("${rank}|${epoch}|${mtime}|${filepath}")
+    ranked+=("${rank}|${epoch}|${mtime}|${fp}")
   done
 
   local -a known rest
+  local rline
   for rline in $ranked; do
     [[ "${rline%%|*}" -le 5 ]] && known+=("$rline") || rest+=("$rline")
   done
 
   local -a pairs
   (( ${#known} > 0 )) && pairs+=(${(f)"$(printf '%s\n' "${known[@]}" | sort -t'|' -k1,1n -k2,2rn)"})
-  (( ${#rest} > 0 )) && pairs+=(${(f)"$(printf '%s\n' "${rest[@]}" | sort -t'|' -k4)"})
+  (( ${#rest}  > 0 )) && pairs+=(${(f)"$(printf '%s\n' "${rest[@]}"  | sort -t'|' -k4)"})
 
-  if (( limit > 0 )); then
+  # 4) Limit (Default nur bei Content-Suche)
+  (( ! limit_set && ${#req_ci[@]} + ${#req_cs[@]} == 0 )) && limit=0
+  if (( limit > 0 && ${#pairs} > limit )); then
     pairs=("${(@)pairs[1,limit]}")
   fi
+
   print -P "%F{cyan}# ${#pairs}%f"
   (( ${#pairs} == 0 )) && return 0
-  local line color disp tag
-  local -a greppat
-  local rq cline num linerest sepchar content trunc marker
+
+  # 5) Ausgabe
+  local line color disp
   for line in $pairs; do
-    rank="${line%%|*}"; line="${line#*|}"
-    epoch="${line%%|*}"; line="${line#*|}"
-    mtime="${line%%|*}"
-    filepath="${line#*|}"
-    disp="${filepath#./}"
-    color=$(_type_color "$filepath")
-    [[ -d "$filepath" ]] && disp="${disp}/"
-    tag="${tags_for[$filepath]}"
-    if [[ -n "$tag" ]]; then
-      print -P "  %F{$color}${disp}%f  %F{3}[${tag}]%f"
-    else
-      print -P "  %F{$color}${disp}%f"
-    fi
-    if (( ${#req_content[@]} )) && [[ -f "$filepath" ]]; then
-      greppat=()
-      for rq in "${req_content[@]}"; do greppat+=(-e "$rq"); done
-      grep -n -i -B"$before_ctx" -A"$after_ctx" "${greppat[@]}" -- "$filepath" 2>/dev/null | while IFS= read -r cline; do
-        if [[ "$cline" == "--" ]]; then
-          print ""
-          continue
-        fi
-        num="${cline%%[^0-9]*}"
-        linerest="${cline#$num}"
-        sepchar="${linerest[1]}"
-        content="${linerest:1}"
-        [[ "$sepchar" == ":" ]] && marker=">" || marker=" "
-        trunc="${content[1,64]}"
-        (( ${#content} > 64 )) && trunc="${trunc}…"
-        printf "    %s %5s  %s\n" "$marker" "$num" "$trunc"
-      done
-    fi
+    rank="${line%%|*}";   line="${line#*|}"
+    epoch="${line%%|*}";  line="${line#*|}"
+    mtime="${line%%|*}";  fp="${line#*|}"
+    disp="${fp#./}"
+    _type_color "$fp"; color="$REPLY_COLOR"
+    [[ -d "$fp" ]] && disp="${disp}/"
+    print -P "  %F{$color}${disp}%f"
+
+    (( ${#req_ci[@]} + ${#req_cs[@]} > 0 )) && [[ -f "$fp" ]] || continue
+    (( ${#req_ci[@]} > 0 )) && _ff_print_hits "$fp" "$ctx" 1 "${req_ci[@]}"
+    (( ${#req_cs[@]} > 0 )) && _ff_print_hits "$fp" "$ctx" 0 "${req_cs[@]}"
   done
+
+  # 6) -v ? äquivalenter Befehl
+  (( verbose )) || return 0
+  local rg
+  rg=$(_find_rg)
+  local -a cmd=()
+  local dd
+
+  if [[ -n "$rg" ]]; then
+    cmd=("$rg" -lF --null --no-messages)
+    for p in "${req_ci[@]}"; do cmd+=(-i -e "$p"); done
+    for p in "${req_cs[@]}"; do cmd+=(-e "$p"); done
+    for p in "${extensions[@]}"; do cmd+=(-g "*.${p#.}"); done
+    for dd in $prune_dirs;    do cmd+=(-g "!${dd}/**"); done
+    (( ! show_hidden )) && cmd+=(-g '!.*')
+    print -P "%F{cyan}# rg äquivalent:%f"
+  else
+    cmd=(grep -rIlF)
+    (( ctx > 0 )) && cmd+=(-C "$ctx")
+    for p in "${req_ci[@]}"; do cmd+=(-i -e "$p"); done
+    for p in "${req_cs[@]}"; do cmd+=(-e "$p"); done
+    for p in "${extensions[@]}"; do cmd+=(--include="*.${p#.}"); done
+    for dd in $prune_dirs;    do cmd+=(--exclude-dir="$dd"); done
+    (( ! show_hidden )) && cmd+=(--exclude='.*')
+    print -P "%F{cyan}# grep äquivalent:%f"
+  fi
+  print -r -- "  $(printf '%q ' "${cmd[@]}")${root}"
 }
-f() { _ff_impl 0 "$@" }
+
+f()  { _ff_impl 0 "$@" }
 ff() { _ff_impl 1 "$@" }
 
+# --- ll -------------------------------------------------------------
 unalias ll 2>/dev/null
 ll() {
+  setopt local_options null_glob extended_glob
   local dir="." dirs_only=0
   if [[ "$1" == "*" ]]; then
     dirs_only=1
@@ -444,38 +508,31 @@ ll() {
     echo "ll: '$dir' is not a directory"
     return 1
   fi
-  local -a type_clause
-  (( dirs_only )) && type_clause=(-type d)
-  local -a entries paths
+
+  local -a paths
+  (( dirs_only )) && paths=("$dir"/*(/N)) || paths=("$dir"/*(N))
+  (( ${#paths} == 0 )) && return 0
+
   local -A _z
-  local sz mtime fp
-  paths=(${(0)"$(find "$dir" -mindepth 1 -maxdepth 1 ! -name '.*' "${type_clause[@]}" -print0 2>/dev/null)"})
+  local fp sz hsize mtime name color
   for fp in $paths; do
+    _z=()
     zstat -H _z "$fp" 2>/dev/null || continue
+    strftime -s mtime '%Y-%m-%d %H:%M' "${_z[mtime]}" 2>/dev/null || continue
     sz="${_z[size]}"
-    mtime=$(strftime '%Y-%m-%d %H:%M' "${_z[mtime]}")
-    entries+=("${sz}|${mtime}|${fp}")
-  done
-  entries=(${(f)"$(printf '%s\n' "${entries[@]}" | sort -t'|' -k3)"})
-  (( ${#entries} == 0 )) && return 0
-  local line size mtime filepath name color hsize
-  for line in $entries; do
-    size="${line%%|*}"; line="${line#*|}"
-    mtime="${line%%|*}"; filepath="${line#*|}"
-    name="${filepath:t}"
-    color=$(_type_color "$filepath")
-    [[ -d "$filepath" ]] && name="${name}/"
-    hsize=$(awk -v s="$size" 'BEGIN{
-      if (s<1024) printf "%dB", s
-      else if (s<1048576) printf "%.1fK", s/1024
-      else if (s<1073741824) printf "%.1fM", s/1048576
-      else printf "%.1fG", s/1073741824
-    }')
-    printf -v hsize "%6s" "$hsize"
+    if   (( sz < 1024 ));       then printf -v hsize '%5dB'   $sz
+    elif (( sz < 1048576 ));    then printf -v hsize '%5.1fK' $(( sz / 1024.0 ))
+    elif (( sz < 1073741824 )); then printf -v hsize '%5.1fM' $(( sz / 1048576.0 ))
+    else                             printf -v hsize '%5.1fG' $(( sz / 1073741824.0 ))
+    fi
+    name="${fp:t}"
+    _type_color "$fp"; color="$REPLY_COLOR"
+    [[ -d "$fp" ]] && name="${name}/"
     print -P "%F{8}${hsize}  ${mtime}%f  %F{$color}${name}%f"
   done
 }
 
+# --- t --------------------------------------------------------------
 t() {
   _require tree || return 1
   local dir="." dirs_only=0
@@ -489,6 +546,7 @@ t() {
   (( dirs_only )) && dflag=(-d)
   tree -C --dirsfirst "${dflag[@]}" -I "$ignore" "$@" "$dir"
 }
+
 alias f='noglob f'
 alias ff='noglob ff'
 alias ll='noglob ll'
@@ -497,6 +555,7 @@ l() { ll "$@" }
 alias l='noglob l'
 alias t='noglob t'
 
+# --- _human ---------------------------------------------------------
 _human() {
   awk -v s="${1:-0}" 'BEGIN{
     if (s<1024) printf "%dB", s
@@ -505,6 +564,8 @@ _human() {
     else printf "%.1fG", s/1073741824
   }'
 }
+
+# --- i --------------------------------------------------------------
 i() {
   local target="${1:-.}"
   if [[ ! -e "$target" ]]; then
@@ -517,23 +578,22 @@ i() {
   rel=$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1]))" "$abs")
 
   local -A _z
-  if ! zstat -H _z -F '%Y-%m-%d %H:%M:%S' "$target" 2>/dev/null; then
+  _z=()
+  if ! zstat -H _z "$target" 2>/dev/null; then
     echo "i: cannot stat '$target'"
     return 1
   fi
-  perms="${_z[mode]}"
+  perms=$(python3 -c 'import stat,sys; print(stat.filemode(int(sys.argv[1])))' "${_z[mode]}")
   owner="${_z[uid]}"
   group="${_z[gid]}"
   size="${_z[size]}"
-  mtime="${_z[mtime]}"
-  ctime="${_z[ctime]}"
+  strftime -s mtime '%Y-%m-%d %H:%M:%S' "${_z[mtime]}" 2>/dev/null
+  strftime -s ctime '%Y-%m-%d %H:%M:%S' "${_z[ctime]}" 2>/dev/null
 
   if [[ -L "$target" ]]; then
     type="symlink -> $(readlink "$target")"
   elif [[ -d "$target" ]]; then
     type="directory"
-    # du liefert auf manchen Dateisystemen (z.B. drvfs/WSL, Netzwerke) 0;
-    # dann auf die zstat-Bytes zurueckfallen.
     local dsize
     dsize=$(du -sh "$target" 2>/dev/null | awk '{print $1}')
     size="${dsize:-0}"
@@ -554,26 +614,44 @@ i() {
   print -P "%F{cyan}Changed:%f   $ctime"
 }
 
+# --- Completions ----------------------------------------------------
 # Case-insensitive completion matching (scree -> Screenshots_...)
 zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' 'r:|[._-]=* r:|=*' 'l:|=* r:|=*' 'm:{a-zA-Z}={A-Za-z} l:|=* r:|=*'
 
-# Tab-completion at command position: suggest only from history, not full $PATH
+# Tab-completion at command position: nur History, nicht ganzes $PATH.
+# Pure-zsh: ein Lesevorgang, keine 4 Subprozesse (tac/sed/awk/awk).
 _history_commands() {
-  local -a cmds raw rev=(tac)
-  command -v tac >/dev/null 2>&1 || rev=(tail -r)
-  raw=(${(f)"$(LC_ALL=C $rev "$HISTFILE" 2>/dev/null | LC_ALL=C sed -E 's/^: [0-9]+:[0-9]+;//' | awk '{print $1}' | awk '!seen[$0]++')"})
-  local c
-  for c in $raw; do
-    (( $+commands[$c] || $+functions[$c] || $+aliases[$c] || $+builtins[$c] )) && cmds+=("$c")
+  [[ -r "${HISTFILE:-}" ]] || return
+  local -a histlines cmds
+  local line first
+  local -A seen
+  local i
+
+  while IFS= read -r line; do
+    histlines+=("$line")
+  done < "$HISTFILE"
+
+  setopt local_options extended_glob
+  for (( i = ${#histlines[@]}; i > 0; i-- )); do
+    line="${histlines[i]}"
+    [[ "$line" == ": "* ]] && line="${line#*;}"
+    line="${line##[[:space:]]#}"
+    first="${line%%[[:space:]]*}"
+    [[ -z "$first" ]] && continue
+    [[ -n "${seen[$first]:-}" ]] && continue
+    if (( $+commands[$first] || $+functions[$first] || $+aliases[$first] || $+builtins[$first] )); then
+      seen[$first]=1
+      cmds+=("$first")
+    fi
   done
+
   compadd -a cmds
 }
 if (( $+functions[compdef] )); then
   compdef '_alternative "history:command:_history_commands" "directories:directory:_path_files -/" "files:file:_path_files -f"' -command-
 fi
 
-# Tab: past 10 chars, only a double-tap (two Tabs within 0.5s) triggers completion
-zmodload zsh/datetime
+# --- Smart Tab ------------------------------------------------------
 typeset -g _tab_last_time=0
 _smart_tab() {
   if (( ${#LBUFFER} <= 10 )); then
@@ -592,10 +670,12 @@ _smart_tab() {
 zle -N _smart_tab
 bindkey '^I' _smart_tab
 
+# --- Aliase ---------------------------------------------------------
 alias py=python3
 alias reload="source ~/.zshrc"
 alias cl=clear
 alias cc=claude
+
 unalias catmd catm 2>/dev/null
 catmd() {
   if [[ "$1" == *.json || "$1" == *.jsonl ]]; then
@@ -621,5 +701,3 @@ catm() {
     mdcat "$@"
   fi
 }
-
-# exp: siehe ~/.local/bin/exp (funktioniert in jeder Shell, jedem Agent via PATH)
