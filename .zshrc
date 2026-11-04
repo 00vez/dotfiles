@@ -61,8 +61,17 @@ _source_first() {
 export ZSH="$HOMEZSH_THEME="robbyrussell"
 plugins=(git)
 
+<<<<<<< HEAD
 # Suppress oh-my-zsh glob errors (missing cachessetopt NULL_GLOB
 if [[ -f $ZSH  source $ZSHelse
+=======
+# Suppress oh-my-zsh glob errors (missing caches/custom dirs).
+setopt NULL_GLOB
+if [[ -f $ZSH/oh-my-zsh.sh ]]; then
+  source $ZSH/oh-my-zsh.sh
+  [[ -s ~/.zshrc.local ]] && { _pn=$(<~/.zshrc.local); [[ -n ${_pn//[[:space:]]/} ]] && PROMPT="%B%F{magenta}${_pn//\%/%%}%f%b $PROMPT"; unset _pn; }  # Prompt-Name
+else
+>>>>>>> 37632140219d0b76c6ce4cc6d011cfd6695d3f23
   _warn_tool oh-my-zsh
 fi
 unsetopt NULL_GLOB
