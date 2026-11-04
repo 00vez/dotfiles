@@ -84,6 +84,7 @@ plugins=(git)
 setopt NULL_GLOB
 if [[ -f $ZSH/oh-my-zsh.sh ]]; then
   source $ZSH/oh-my-zsh.sh
+  [[ -s ~/.zshrc.local ]] && { _pn=$(<~/.zshrc.local); [[ -n ${_pn//[[:space:]]/} ]] && PROMPT="%B%F{magenta}${_pn//\%/%%}%f%b $PROMPT"; unset _pn; }  # Prompt-Name
 else
   _warn_tool oh-my-zsh
 fi
