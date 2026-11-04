@@ -1,6 +1,4 @@
-#Requires -Version 7.2
-# PowerShell profile — reduced variant (Microsoft.PowerShell_profile.ps1.txt).
-# Contains only the zsh-parity set: gst, navigation (cd/../autocd), l, ll,
+# PowerShell minimal profile — (Microsoft.PowerShell_profile.ps1.txt).
 # t, f, ff, i, catm/catmd, cl, cc, py, reload. Same structure as the
 # full profile; personal helper functions removed.
 
@@ -120,6 +118,107 @@ function Get-PrunedEntries {
 }
 
 # ---------------------------------------------------------------------------
+# Textfile whitelist (parity with zsh _ff_is_textfile). Content search runs
+# only on these extensions — binaries like .mp4/.png are excluded before the
+# scanner even opens them (fixes false matches from binary frames).
+# ---------------------------------------------------------------------------
+
+$Script:TextExt = @(
+    'py','js','jsx','ts','tsx','go','rs','c','cpp','h','hpp','java','rb','php',
+    'sh','zsh','bash','ps1','psm1','lua',
+    'json','jsonl','yaml','yml','toml','xml','html','htm','css','scss','ini','conf','cfg','env',
+    'md','txt','rst','adoc','org','tex',
+    'csv','tsv','log','sql','bak',
+    'gitignore','gitattributes','bashrc','zshrc','profile','vimrc','gitconfig','editorconfig'
+)
+$Script:TextNames = @('makefile','dockerfile','readme','license','changelog','authors','contributors')
+
+function Test-IsTextFile {
+    param([string]$Path)
+    $name = [System.IO.Path]::GetFileName($Path).ToLower()
+    $ext  = [System.IO.Path]::GetExtension($Path).TrimStart('.').ToLower()
+    if ($ext -and $Script:TextExt -contains $ext) { return $true }
+    if ($Script:TextNames -contains $name) { return $true }
+    return $false
+}
+
+# Ein Datei-Read, alle Patterns inline. UND-Verknüpfung: alle Patterns müssen
+# in der Datei vorkommen (irgendwo), sonst false. Per-Index getrackt, damit
+# Duplikate, die sich nur in der Groß-/Kleinschreibung unterscheiden, korrekt
+# behandelt werden.
+function Test-FileContainsAll {
+    param(
+        [string]$Path,
+        [string[]]$PatternsCI = @(),
+        [string[]]$PatternsCS = @()
+    )
+    try { $lines = [IO.File]::ReadAllLines($Path) } catch { return $false }
+    $ciTotal = $PatternsCI.Count
+    $csTotal = $PatternsCS.Count
+    $foundCI = [bool[]]::new($ciTotal)
+    $foundCS = [bool[]]::new($csTotal)
+    $ciHits = 0
+    $csHits = 0
+    foreach ($line in $lines) {
+        for ($i = 0; $i -lt $ciTotal; $i++) {
+            if (-not $foundCI[$i] -and $line.IndexOf($PatternsCI[$i], [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $foundCI[$i] = $true
+                $ciHits++
+            }
+        }
+        for ($j = 0; $j -lt $csTotal; $j++) {
+            if (-not $foundCS[$j] -and $line.IndexOf($PatternsCS[$j], [StringComparison]::Ordinal) -ge 0) {
+                $foundCS[$j] = $true
+                $csHits++
+            }
+        }
+        if ($ciHits -eq $ciTotal -and $csHits -eq $csTotal) { return $true }
+    }
+    return ($ciHits -eq $ciTotal -and $csHits -eq $csTotal)
+}
+
+# Content-Treffer mit beidseitigem Kontext. SortedSet garantiert aufsteigende
+# Zeilennummern, HashSet verhindert doppelte Ausgabe überlappender Kontexte,
+# Lücken zwischen Blöcken werden durch eine Leerzeile getrennt (wie grep -C).
+function Show-ContentHits {
+    param(
+        [string]$Path,
+        [string[]]$PatternsCI = @(),
+        [string[]]$PatternsCS = @(),
+        [int]$Context = 0
+    )
+    try { $lines = [IO.File]::ReadAllLines($Path) } catch { return }
+    $hitSet = [System.Collections.Generic.SortedSet[int]]::new()
+    for ($i = 0; $i -lt $lines.Length; $i++) {
+        $line = $lines[$i]
+        $hit = $false
+        foreach ($p in $PatternsCI) {
+            if ($line.IndexOf($p, [StringComparison]::OrdinalIgnoreCase) -ge 0) { $hit = $true; break }
+        }
+        if (-not $hit) {
+            foreach ($p in $PatternsCS) {
+                if ($line.IndexOf($p, [StringComparison]::Ordinal) -ge 0) { $hit = $true; break }
+            }
+        }
+        if ($hit) { [void]$hitSet.Add($i) }
+    }
+    $shown = [System.Collections.Generic.HashSet[int]]::new()
+    $prevLine = -1
+    foreach ($h in $hitSet) {
+        $lo = [Math]::Max(0, $h - $Context)
+        $hi = [Math]::Min($lines.Length - 1, $h + $Context)
+        for ($i = $lo; $i -le $hi; $i++) {
+            if (-not $shown.Add($i)) { continue }
+            if ($prevLine -ge 0 -and $i -gt $prevLine + 1) { Write-Host "" }
+            $prevLine = $i
+            $marker = if ($hitSet.Contains($i)) { '>' } else { ' ' }
+            $txt = if ($lines[$i].Length -gt 100) { $lines[$i].Substring(0,100) + '…' } else { $lines[$i] }
+            Write-Host ("    {0} {1,5}  {2}" -f $marker, ($i+1), $txt)
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
 # f / ff — recursive multi-pattern search. f hides dotfiles/hidden, ff shows
 # them. Category order: txt, md, executable, image, video, other-known (by
 # recency), then unrecognized types + directories (alphabetical).
@@ -127,21 +226,24 @@ function Get-PrunedEntries {
 function Show-FindHelp {
     Write-Host (Write-Colored "f/ff – rekursive Dateisuche. " '36') "ohne Argument oder 'help' zeigt diese Parameterübersicht."
     Write-Host ""
-    Write-Host "Syntax:  f  <pattern> [pattern2 ...] [.ext] [dir/] [*] [*N] [%text] [=text] [-N] [+N] [:N]"
+    Write-Host "Syntax:  f  <pattern> [pattern2 ...] [.ext] [dir/] [*] [*N] [%text] [%%text] [-N] [:N]"
     Write-Host ""
     Write-Host "  <pattern>   Dateiname enthält Muster (mehrere = UND-Verknüpfung)"
     Write-Host "  .ext        nur diese Endung (z.B. .md .txt; mehrere = ODER)"
     Write-Host "  dir/        nur in diesem Verzeichnis suchen (z.B. src/)"
-    Write-Host "  *           nur Verzeichnisse anzeigen (nicht mit %/= kombinierbar)"
+    Write-Host "  *           nur Verzeichnisse anzeigen (nicht mit %/%% kombinierbar)"
     Write-Host "  *N          nur erste N Ergebnisse zeigen (z.B. *10)"
-    Write-Host "  %text       Dateiinhalt muss Text enthalten (mehrere = UND)"
-    Write-Host "  ,text       identisch zu %text, muss in PowerShell quotiert sein: f ',text'"
-    Write-Host "  =text       Treffer-Tag wenn Datei Text enthält (nur Anzeige)"
-    Write-Host "  -N / +N     N Zeilen Kontext vor/nach Content-Treffer (z.B. -2 +2)"
+    Write-Host "  %text       Dateiinhalt muss Text enthalten (case-insensitive, mehrere = UND)"
+    Write-Host "  %%text      Dateiinhalt muss Text enthalten (case-sensitive)"
+    Write-Host "  -N          N Zeilen Kontext beidseitig um Content-Treffer"
     Write-Host "  :N          maximale Suchtiefe ab Suchroot (z.B. :2)"
     Write-Host "  ff          wie f, zeigt zusätzlich versteckte Dateien"
     Write-Host ""
-    Write-Host "Sortierung: txt > md > ausführbar > Bild > Video > bekannt (neueste zuerst), Rest alphabetisch."}
+    Write-Host "  Content-Suche läuft nur auf Textdateien (py, js, md, json, …);"
+    Write-Host "  Binärdateien (mp4, png, zip, …) werden nie durchsucht."
+    Write-Host ""
+    Write-Host "Sortierung: txt > md > ausführbar > Bild > Video > bekannt (neueste zuerst), Rest alphabetisch."
+}
 
 function Invoke-FindImpl {
     param(
@@ -153,17 +255,16 @@ function Invoke-FindImpl {
         return
     }
 
-    $patterns = @()
-    $extensions = @()
-    $reqContent = @()
-    $optContent = @()
+    $patterns     = [System.Collections.Generic.List[string]]::new()
+    $extensions   = [System.Collections.Generic.List[string]]::new()
+    $reqContentCI = [System.Collections.Generic.List[string]]::new()
+    $reqContentCS = [System.Collections.Generic.List[string]]::new()
     $root = '.'
     $rootSet = $false
     $dirsOnly = $false
     $maxDepth = 0
     $limit = 0
-    $beforeCtx = 0
-    $afterCtx = 0
+    $ctx = 0
 
     foreach ($arg in $FindArgs) {
         if ($arg -eq '*') {
@@ -172,17 +273,17 @@ function Invoke-FindImpl {
         elseif ($arg -match '^\*(\d+)$') {
             $limit = [int]$Matches[1]
         }
-        elseif ($arg -match '^[%,](.+)$') {
-            $reqContent += $Matches[1]
+        elseif ($arg -match '^%%(.+)$') {
+            $reqContentCS.Add($Matches[1])
         }
-        elseif ($arg -match '^=(.+)$') {
-            $optContent += $Matches[1]
+        elseif ($arg -match '^%(.+)$') {
+            $reqContentCI.Add($Matches[1])
         }
-        elseif ($arg -match '^-(\d+)$') {
-            $beforeCtx = [int]$Matches[1]
+        elseif ($arg -match '^[+-](\d+)$') {
+            $ctx = [int]$Matches[1]
         }
-        elseif ($arg -match '^\+(\d+)$') {
-            $afterCtx = [int]$Matches[1]
+        elseif ($arg -match '^:(\d+)$') {
+            $maxDepth = [int]$Matches[1]
         }
         elseif ($arg -eq '.') {
             if ($patterns.Count -gt 0) {
@@ -195,7 +296,7 @@ function Invoke-FindImpl {
                     Write-Host "f/ff: only one search directory allowed (got '$root' and '$prev')"
                     return
                 }
-                $patterns = $patterns[0..($patterns.Count - 2)]
+                $patterns.RemoveAt($patterns.Count - 1)
                 $root = $prev
                 $rootSet = $true
             }
@@ -243,19 +344,19 @@ function Invoke-FindImpl {
                 $rootSet = $true
             }
             else {
-                $extensions += $arg
+                $extensions.Add($arg)
             }
         }
         else {
-            $patterns += $arg
+            $patterns.Add($arg)
         }
     }
 
-    if ($patterns.Count -eq 0 -and $extensions.Count -eq 0 -and $reqContent.Count -eq 0 -and $optContent.Count -eq 0 -and -not $dirsOnly -and $maxDepth -eq 0) {
+    if ($patterns.Count -eq 0 -and $extensions.Count -eq 0 -and $reqContentCI.Count -eq 0 -and $reqContentCS.Count -eq 0 -and -not $dirsOnly -and $maxDepth -eq 0 -and -not $rootSet) {
         Show-FindHelp
         return
     }
-    if ($dirsOnly -and ($reqContent.Count -gt 0 -or $optContent.Count -gt 0)) {
+    if ($dirsOnly -and ($reqContentCI.Count -gt 0 -or $reqContentCS.Count -gt 0)) {
         Write-Host "f/ff: Content-Suche nicht mit '*' kombinierbar"
         return
     }
@@ -265,7 +366,7 @@ function Invoke-FindImpl {
     $rootAbs = (Resolve-Path -LiteralPath $root).Path
     Write-Host (Write-Colored $rootAbs '36')
 
-    $found = @()
+    $found = [System.Collections.Generic.List[object]]::new()
     foreach ($raw in Get-PrunedEntries -Root $root -ShowHidden $ShowHidden -MaxDepth $maxDepth) {
         $isDir = $raw[0] -eq 'D'
         $entry = $raw.Substring(1)
@@ -288,29 +389,18 @@ function Invoke-FindImpl {
             foreach ($e in $extensions) { if ($name -like "*$e") { $matched = $true; break } }
             if (-not $matched) { continue }
         }
-        $found += [pscustomobject]@{ Entry = $entry; IsDir = $isDir }
+        $found.Add([pscustomobject]@{ Entry = $entry; IsDir = $isDir })
     }
 
-    $tags = @{}
-    if ($reqContent.Count -gt 0 -or $optContent.Count -gt 0) {
-        $filtered = @()
+    if ($reqContentCI.Count -gt 0 -or $reqContentCS.Count -gt 0) {
+        $filtered = [System.Collections.Generic.List[object]]::new()
         foreach ($it in $found) {
+            if ($it.IsDir) { continue }
             $fp = $it.Entry
-            if (-not (Test-Path -LiteralPath $fp -PathType Leaf)) {
-                if ($reqContent.Count -eq 0) { $filtered += $it }
-                continue
+            if (-not (Test-IsTextFile $fp)) { continue }
+            if (Test-FileContainsAll -Path $fp -PatternsCI $reqContentCI -PatternsCS $reqContentCS) {
+                $filtered.Add($it)
             }
-            $ok = $true
-            foreach ($rc in $reqContent) {
-                if (-not (Select-String -LiteralPath $fp -Pattern $rc -SimpleMatch -Quiet)) { $ok = $false; break }
-            }
-            if (-not $ok) { continue }
-            $tl = @()
-            foreach ($oc in $optContent) {
-                if (Select-String -LiteralPath $fp -Pattern $oc -SimpleMatch -Quiet) { $tl += $oc }
-            }
-            if ($tl.Count -gt 0) { $tags[$fp] = ($tl -join ', ') }
-            $filtered += $it
         }
         $found = $filtered
     }
@@ -318,7 +408,7 @@ function Invoke-FindImpl {
     $knownExt = @('py','js','jsx','ts','tsx','go','rs','c','cpp','h','java','rb','php','sh','zsh','ps1','psm1','json','jsonl','yaml','yml','xml','html','toml','csv','zip','tar','gz','rar','7z','bz2')
     $imgExt = @('png','jpg','jpeg','gif','svg','webp','ico','bmp','tiff')
     $vidExt = @('mp4','mov','avi','mkv','webm','flv','wmv','m4v')
-    $ranked = @()
+    $ranked = [System.Collections.Generic.List[object]]::new()
     foreach ($it in $found) {
         $ext = [System.IO.Path]::GetExtension($it.Entry).TrimStart('.').ToLower()
         if ($it.IsDir) { $rank = 6 }
@@ -332,7 +422,7 @@ function Invoke-FindImpl {
             $rank = if ($isExe) { 2 } else { 6 }
         }
         try { $mtime = (Get-Item -LiteralPath $it.Entry).LastWriteTime } catch { $mtime = [datetime]::MinValue }
-        $ranked += [pscustomobject]@{ Rank = $rank; Mtime = $mtime; Item = $it }
+        $ranked.Add([pscustomobject]@{ Rank = $rank; Mtime = $mtime; Item = $it })
     }
     $known = @($ranked | Where-Object { $_.Rank -le 5 } | Sort-Object Rank, @{ E = 'Mtime'; Descending = $true })
     $rest = @($ranked | Where-Object { $_.Rank -eq 6 } | Sort-Object { $_.Item.Entry })
@@ -345,15 +435,10 @@ function Invoke-FindImpl {
         $rel = $entry.Substring($rootAbs.Length).TrimStart('\')
         if ($isDir) { $rel = "$rel\" }
         $line = Write-Colored $rel (Get-TypeColor $entry -IsDir $isDir)
-        if ($tags.ContainsKey($entry)) { $line += "  $(Write-Colored "[$($tags[$entry])]" '3')" }
         Write-Host "  $line"
-        if ($reqContent.Count -gt 0 -and (Test-Path -LiteralPath $entry -PathType Leaf)) {
-            $ctx = @()
-            foreach ($rc in $reqContent) { $ctx += Select-String -LiteralPath $entry -Pattern $rc -SimpleMatch -Context $beforeCtx,$afterCtx }
-            foreach ($m in $ctx) {
-                $txt = ($m.Line.Length -gt 64) ? $m.Line.Substring(0,64) + '…' : $m.Line
-                Write-Host ("      > {0,5}  {1}" -f $m.LineNumber, $txt)
-            }
+        if (($reqContentCI.Count -gt 0 -or $reqContentCS.Count -gt 0) -and
+            (Test-Path -LiteralPath $entry -PathType Leaf)) {
+            Show-ContentHits -Path $entry -PatternsCI $reqContentCI -PatternsCS $reqContentCS -Context $ctx
         }
         $count++
     }
