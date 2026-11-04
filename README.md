@@ -122,3 +122,4 @@ Komma quoten: `f ',text'` — der PowerShell-Parser liest `,` sonst als Array-Op
 - **Theme:** `robbyrussell`. Andere Themes in `~/.oh-my-zsh/custom/themes/` + `ZSH_THEME` in `.zshrc`.
 - **Zeilenenden:** `.zshrc` muss LF sein — `.gitattributes` erzwingt das.
 - **Private PowerShell-Helpers** (`tn`, `oc`, `hardfetch` …) sind nicht portabel und nur in der Vollvariante der `.ps1`.
+- **Prompt-Name:** `echo foo > ~/.zshrc.local` setzt `foo` (magenta) vor das `➜`. Datei leer oder fehlend = Standard-robbyrussell. Liegt außerhalb des Repos.
